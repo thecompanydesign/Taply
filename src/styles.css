@@ -2271,6 +2271,11 @@ a {
   line-height: 1.55;
   color: rgba(244, 242, 234, 0.72);
 }
+/* No divider under the last point; the button follows with its own gap. */
+.teams__points li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
 .teams__points strong {
   display: block;
   margin-bottom: 2px;
@@ -3313,6 +3318,9 @@ a {
   .teams .cta {
     width: 100%;
     justify-content: space-between;
+  }
+  .teams__action {
+    margin-top: 32px;
   }
   .teams__visual {
     min-height: 300px;
