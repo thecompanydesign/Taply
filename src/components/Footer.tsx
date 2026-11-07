@@ -1,4 +1,4 @@
-import { Arrow, BrandMark, ORDER_LINK_NOTE, ORDER_URL } from './shared'
+import { BrandMark, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 
 export function Footer() {
   return (
@@ -36,10 +36,7 @@ export function Footer() {
               </li>
               <li>
                 <a href={ORDER_URL} target="_blank" rel="noreferrer">
-                  <span>
-                    Order on <span className="footer__nowrap">WhatsApp<Arrow /></span>
-                  </span>
-                  <span className="sr-only">{ORDER_LINK_NOTE}</span>
+                  Order on WhatsApp<span className="sr-only">{ORDER_LINK_NOTE}</span>
                 </a>
               </li>
             </ul>
@@ -51,11 +48,6 @@ export function Footer() {
               <li>
                 <a href="https://taply.com" target="_blank" rel="noreferrer">
                   taply.com
-                </a>
-              </li>
-              <li>
-                <a href={ORDER_URL} target="_blank" rel="noopener noreferrer">
-                  Order on WhatsApp<span className="sr-only">{ORDER_LINK_NOTE}</span>
                 </a>
               </li>
             </ul>
