@@ -20,6 +20,9 @@ export function Footer() {
                 <a href="#features">Features</a>
               </li>
               <li>
+                <a href="#teams">For teams</a>
+              </li>
+              <li>
                 <a href="#faq">FAQ</a>
               </li>
             </ul>

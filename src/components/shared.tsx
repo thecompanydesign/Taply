@@ -7,6 +7,8 @@ import type { ReactNode } from 'react'
 export const WHATSAPP_NUMBER = '254140986500' // Kenya, international format without + or leading 0 (from 0140986500)
 export const ORDER_MESSAGE = "Hi Taply! I'd like to order a Taply card (KES 5,500). Kindly help me get started."
 export const ORDER_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(ORDER_MESSAGE)}`
+export const TEAM_ORDER_MESSAGE = "Hi Taply! I'd like a quote for a team order. Kindly help me get started."
+export const TEAM_ORDER_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(TEAM_ORDER_MESSAGE)}`
 /** Screen-reader suffix for links that open WhatsApp. */
 export const ORDER_LINK_NOTE = ' (opens WhatsApp in a new tab)'
 

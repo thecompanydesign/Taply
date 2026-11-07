@@ -7,6 +7,10 @@ const FAQS = [
     a: 'Compatible iPhones open the profile with an NFC tap, or by scanning the QR code.',
   },
   {
+    q: 'Can I order for my whole team?',
+    a: 'Yes. Tell us how many cards you need and we’ll send you a team quote on WhatsApp. Every team member gets a card and their own digital profile, with your company branding kept consistent.',
+  },
+  {
     q: 'Does it work with Android?',
     a: 'Compatible Android phones open the profile with an NFC tap, or by scanning the QR code.',
   },
@@ -76,7 +80,7 @@ export function FAQSection() {
     <section className="section faq" id="faq">
       <div className="container faq__grid">
         <div className="faq__head stagger">
-          <SectionIntro num="07" label="Questions" />
+          <SectionIntro num="08" label="Questions" />
           <h2 className="h2">
             Simple answers.
             <br />

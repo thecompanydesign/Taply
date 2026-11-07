@@ -4,6 +4,7 @@ import { BrandMark, CTA, MenuIcon, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 const LINKS = [
   { href: '#how', label: 'How it works' },
   { href: '#features', label: 'Features' },
+  { href: '#teams', label: 'For teams' },
   { href: '#faq', label: 'FAQ' },
 ]
 

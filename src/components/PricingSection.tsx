@@ -89,6 +89,9 @@ export function PricingSection() {
                   Get your Taply card
                 </CTA>
                 <p className="panel__note">One-off cost. Update your digital profile anytime at no extra cost, and share it with a tap or scan. No app needed for anyone you meet.</p>
+                <p className="panel__team">
+                  Need cards for a team? <a href="#teams">See team orders.</a>
+                </p>
               </div>
             </div>
 

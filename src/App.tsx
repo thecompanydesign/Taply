@@ -7,6 +7,7 @@ import { FeaturesSection } from './components/FeaturesSection'
 import { DigitalProfileSection } from './components/DigitalProfileSection'
 import { YourCardSection } from './components/YourCardSection'
 import { PricingSection } from './components/PricingSection'
+import { TeamsSection } from './components/TeamsSection'
 import { FAQSection } from './components/FAQSection'
 import { RealWorldSection } from './components/RealWorldSection'
 import { FinalCTA } from './components/FinalCTA'
@@ -38,6 +39,7 @@ export default function App() {
         <DigitalProfileSection />
         <YourCardSection />
         <PricingSection />
+        <TeamsSection />
         <FAQSection />
         <RealWorldSection />
         <FinalCTA />

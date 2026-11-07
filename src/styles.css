@@ -81,6 +81,7 @@ a {
 
 .features,
 .profile,
+.teams,
 .final,
 .footer,
 .hero__band {
@@ -566,6 +567,28 @@ a {
   position: relative;
   display: grid;
   place-items: center;
+}
+/* Quiet secondary link for team orders, below the CTAs. */
+.hero__team {
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.hero__team a,
+.panel__team a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  font-weight: 600;
+  color: var(--carbon);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 200ms;
+}
+.hero__team a:hover,
+.panel__team a:hover {
+  color: var(--tap-violet);
 }
 .hero__lime-leaf {
   position: absolute;
@@ -2123,6 +2146,11 @@ a {
   font-size: 14px;
   color: rgba(19, 19, 31, 0.66);
 }
+.panel__team {
+  margin-top: 4px;
+  font-size: 14px;
+  color: rgba(19, 19, 31, 0.66);
+}
 .panel__visual {
   position: relative;
   min-height: 520px;
@@ -2206,7 +2234,170 @@ a {
 }
 
 /* ==========================================================================
-   07 — FAQ
+   07 — For teams (corporate orders)
+   ========================================================================== */
+.teams {
+  background: var(--carbon);
+  color: var(--warm-paper);
+}
+.teams__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 80px;
+}
+.teams .lede {
+  margin-top: 28px;
+  color: rgba(244, 242, 234, 0.78);
+}
+.teams__points {
+  max-width: 540px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid rgba(244, 242, 234, 0.16);
+}
+.teams__points li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(244, 242, 234, 0.16);
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(244, 242, 234, 0.72);
+}
+.teams__points strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--warm-paper);
+}
+.teams__num {
+  padding-top: 5px;
+  color: var(--signal-lime);
+}
+.teams__action {
+  margin-top: 40px;
+}
+/* On Carbon, the lime CTA's Carbon arrow box would vanish: give it violet. */
+.teams .cta--lime .cta__arrow {
+  background: var(--tap-violet);
+  color: #fff;
+}
+.teams__note {
+  margin-top: 14px;
+  font-size: 14px;
+  color: rgba(244, 242, 234, 0.6);
+}
+
+/* A fanned stack of identical cards: they float in on scroll and fan a
+   little further on hover or tap. */
+.teams__visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 520px;
+}
+.teams__circle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(84%, 460px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--tap-violet);
+  transform: translate(-50%, -50%);
+}
+.teams__stack {
+  position: relative;
+  width: min(64%, 360px);
+  aspect-ratio: 1.586;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.teams__card {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  transform: translate(var(--x), var(--y)) rotate(var(--r));
+  transition:
+    transform 700ms var(--ease),
+    opacity 800ms var(--ease) calc(var(--n) * 110ms),
+    translate 1000ms var(--ease) calc(var(--n) * 110ms);
+}
+.teams__card:nth-child(1) {
+  --x: -9%;
+  --y: 4%;
+  --r: -10deg;
+}
+.teams__card:nth-child(2) {
+  --x: -3%;
+  --y: 1%;
+  --r: -3.5deg;
+}
+.teams__card:nth-child(3) {
+  --x: 3%;
+  --y: 1%;
+  --r: 3.5deg;
+}
+.teams__card:nth-child(4) {
+  --x: 9%;
+  --y: 4%;
+  --r: 10deg;
+}
+.teams__stack.is-spread .teams__card:nth-child(1) {
+  --x: -13%;
+  --r: -14deg;
+}
+.teams__stack.is-spread .teams__card:nth-child(2) {
+  --x: -4.5%;
+  --r: -5deg;
+}
+.teams__stack.is-spread .teams__card:nth-child(3) {
+  --x: 4.5%;
+  --r: 5deg;
+}
+.teams__stack.is-spread .teams__card:nth-child(4) {
+  --x: 13%;
+  --r: 14deg;
+}
+@media (hover: hover) {
+  .teams__stack:hover .teams__card:nth-child(1) {
+    --x: -13%;
+    --r: -14deg;
+  }
+  .teams__stack:hover .teams__card:nth-child(2) {
+    --x: -4.5%;
+    --r: -5deg;
+  }
+  .teams__stack:hover .teams__card:nth-child(3) {
+    --x: 4.5%;
+    --r: 5deg;
+  }
+  .teams__stack:hover .teams__card:nth-child(4) {
+    --x: 13%;
+    --r: 14deg;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .js .teams__visual:not(.in) .teams__card {
+    opacity: 0;
+    translate: 0 64px;
+  }
+}
+.teams__symbol {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22cqw;
+  height: auto;
+  translate: -50% -50%;
+}
+
+/* ==========================================================================
+   08 — FAQ
    ========================================================================== */
 .faq {
   background: var(--cloud);
@@ -2327,7 +2518,7 @@ a {
 }
 
 /* ==========================================================================
-   08 — Real-world use
+   09 — Real-world use
    ========================================================================== */
 .real {
   /* 100cqw below is this section's width (the page width without a
@@ -2731,6 +2922,13 @@ a {
     grid-template-columns: 1fr;
     gap: 72px;
   }
+  .teams__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 56px;
+  }
+  .teams__visual {
+    min-height: 440px;
+  }
   .profile__visual {
     order: 0;
   }
@@ -2981,6 +3179,16 @@ a {
     width: 100%;
     justify-content: space-between;
   }
+  .teams .cta {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .teams__visual {
+    min-height: 300px;
+  }
+  .teams__stack {
+    width: min(60%, 280px);
+  }
 
   .footer {
     padding-top: 72px;
@@ -3046,6 +3254,7 @@ a {
   .js .pstage .phone__links li,
   .js .pstage .phone__save,
   .js .panel__card,
+  .js .teams__card,
   .js .final__title .w__in,
   .acc__inner p,
   [data-parallax] {

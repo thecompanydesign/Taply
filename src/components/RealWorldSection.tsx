@@ -17,7 +17,7 @@ export function RealWorldSection() {
       </div>
 
       <div className="real__copy stagger">
-        <SectionIntro num="08" label="Real-world use" />
+        <SectionIntro num="09" label="Real-world use" />
         <h2 className="h2">
           For the moments that <span className="accent">lead somewhere.</span>
         </h2>

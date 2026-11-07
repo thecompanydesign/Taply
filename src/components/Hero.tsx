@@ -78,6 +78,9 @@ export function Hero() {
               Discover how it works
             </CTA>
           </div>
+          <p className="hero__team hero__in" style={{ '--i': 5 } as CSSProperties}>
+            Ordering for a team? <a href="#teams">Request a quote</a>
+          </p>
         </div>
 
         <div className="hero__visual">
