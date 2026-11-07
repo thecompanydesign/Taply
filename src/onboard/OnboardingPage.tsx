@@ -553,7 +553,6 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   return (
     <>
       <div className="ob-head ob-fade">
-        <p className="ob-hi">Hi,</p>
         <h1 className="h2 ob-head__title">
           Your digital <span className="accent">profile</span>
         </h1>
@@ -828,13 +827,6 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
                     'Send my details'
                   )}
                 </CTA>
-                {!ready && !sending && (
-                  <p className="ob-send__hint">
-                    {gift
-                      ? "Add your name and number, the card owner's name and WhatsApp number, and tick the box to send."
-                      : 'Add your name and WhatsApp number, and tick the box to send.'}
-                  </p>
-                )}
               </div>
             </div>
           </fieldset>

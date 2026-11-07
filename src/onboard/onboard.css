@@ -51,13 +51,6 @@
 .ob-head {
   padding-block: 48px 44px;
 }
-.ob-hi {
-  margin-bottom: 14px;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
-}
 .ob-head__title {
   font-size: clamp(44px, 6vw, 80px);
 }
@@ -525,8 +518,13 @@
 }
 
 /* ---------------------------------------------------------------- send */
-.ob-sec--send {
-  padding-bottom: 0;
+/* Consent follows the last field without a divider, about 24px below it. */
+.ob-sec.ob-sec--send {
+  padding-block: 0;
+  border-top: 0;
+}
+.ob-sec:has(+ .ob-sec--send) {
+  padding-bottom: 24px;
 }
 .ob-send {
   margin-top: 28px;
@@ -580,12 +578,6 @@
     transform: rotate(360deg);
   }
 }
-.ob-send__hint {
-  margin-top: 12px;
-  font-size: 13px;
-  line-height: 1.45;
-  color: rgba(19, 19, 31, 0.64);
-}
 .ob-senderr {
   margin-top: 24px;
   padding: 16px 18px;
@@ -617,8 +609,9 @@
 .ob-preview .ycard__view {
   cursor: pointer;
 }
+/* Room for the card's shadow above the FRONT / BACK toggle. */
 .ob-preview .ycard__flip {
-  margin-top: 16px;
+  margin-top: 32px;
 }
 .ob-preview__note {
   margin-top: 12px;
@@ -635,7 +628,7 @@
   margin-inline: auto;
 }
 .ob-preview--compact .ycard__flip {
-  margin-top: 12px;
+  margin-top: 28px;
 }
 
 /* Card parts used by the client previews (the homepage card never sets them). */
