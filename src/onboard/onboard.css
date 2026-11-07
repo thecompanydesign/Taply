@@ -52,8 +52,14 @@ html:has(.ob) {
   text-transform: uppercase;
 }
 
+/* Top padding: the heading's letters start about 80px below the top bar's divider (56px under 768px). */
 .ob-head {
-  padding-block: 48px 44px;
+  padding-block: 70px 44px;
+}
+@media (max-width: 767px) {
+  .ob-head {
+    padding-top: 50px;
+  }
 }
 .ob-head__title {
   font-size: clamp(44px, 6vw, 80px);
@@ -807,7 +813,7 @@ html:has(.ob) {
     height: 25.4px;
   }
   .ob-head {
-    padding-block: 28px 32px;
+    padding-block: 50px 32px;
   }
   .ob-head__title,
   .ob-screen__title {
