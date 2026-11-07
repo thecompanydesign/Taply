@@ -113,10 +113,13 @@ run `npm run link` again with the new secret and send the new link out.
 
 ### What arrives by email
 
-Subject `New Taply brief: <full name> (<ref>)`, sent to `NOTIFY_EMAIL` from `GMAIL_USER`, with Reply-To
-set to the client's email. It has a table (HTML and plain text) of every field, the reference, which kind
-of link was used, the time in Nairobi, and the files attached as `<ref>-logo.png`, `<ref>-photo.jpg`,
-`<ref>-business-card-1.jpg` and so on. Nothing is stored on the server.
+Subject `New profile details: <full name> (<ref>)`, sent to `NOTIFY_EMAIL` from `GMAIL_USER`, with
+Reply-To set to the client's email when they gave one. A short, single-column email (HTML and plain text):
+the reference and time in Nairobi, then Person, Contact, Socials, Bio, On the card and Gift order. Only
+answered fields are shown; a section with nothing in it is left out. One line names what is attached
+(business card, logo, profile photo), and a footer records when consent was given. The files are
+attached as `<ref>-logo.png`, `<ref>-photo.jpg`, `<ref>-business-card-1.jpg` and so on. Nothing is
+stored on the server.
 
 ### Protection
 

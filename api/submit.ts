@@ -159,92 +159,185 @@ function consentTime(b: Brief, now: Date): Date {
 }
 
 // ---------------------------------------------------------------- email
+/*
+ * A short, scannable notification. Only answered fields appear: an empty
+ * value never renders a row, and a section with no rows is left out with
+ * its label. Inline styles and tables only (email clients drop <style>);
+ * the plain-text version follows the same rules.
+ */
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
-type Row = [string, string]
-type Group = { title: string; rows: Row[] }
+const has = (v: string | undefined | null): v is string => typeof v === 'string' && v.trim() !== ''
 
-function groups(b: Brief, consentAt: string): Group[] {
-  const out: Group[] = []
-  if (b.gift)
-    out.push({
-      title: 'Ordered by (gift / filled in for someone else)',
-      rows: [
-        ['Name', b.ordererName],
-        ['Number', b.ordererPhone],
-      ],
+/** "Saturday, 7 November 2026, 20:15" in Nairobi time. */
+function nairobiTime(d: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Nairobi',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
     })
-  out.push(
-    {
-      title: b.gift ? "Card owner's details" : 'Details',
-      rows: [
-        ['Full name', b.name],
-        ['Job title', b.title],
-        ['Company', b.company],
-      ],
-    },
-    {
-      title: 'Contact',
-      rows: [
-        ['Phone (WhatsApp)', b.phone],
-        ['Second phone', b.phone2],
-        ['Email', b.email],
-        ['Website', b.website],
-        ['Social links', b.socials.map((x) => `${x.platform}: ${x.url}`).join('\n')],
-      ],
-    },
-    {
-      title: 'Profile and card',
-      rows: [
-        ['Short bio', b.bio],
-        ['Card tagline', b.tagline],
-        ['Anything else', b.notes],
-      ],
-    },
-    {
-      title: 'Consent',
-      rows: [
-        ['Consent', b.consent ? 'Yes: agreed to these details showing on the public profile and to being contacted about the order.' : 'No'],
-        ['Consent given', `${consentAt} (Nairobi time)`],
-      ],
-    },
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
   )
+  return `${parts.weekday}, ${parts.day} ${parts.month} ${parts.year}, ${parts.hour}:${parts.minute}`
+}
+
+/** An http(s) address for a link, or null when the value isn't one (e.g. an @handle). */
+function webHref(v: string): string | null {
+  if (v.startsWith('@')) return null
+  const s = /^[a-z][a-z\d+.-]*:/i.test(v) ? v : `https://${v}`
+  try {
+    const u = new URL(s)
+    const web = (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') && !u.username && !u.password
+    return web ? u.href : null
+  } catch {
+    return null
+  }
+}
+
+const digits = (v: string) => v.replace(/\D/g, '')
+
+/** A row value: plain text, or text with a link. */
+type Value = { text: string; href?: string | null }
+type Row = { label: string; value: Value }
+type Section =
+  | { label: string; kind: 'rows'; rows: Row[] }
+  | { label: string; kind: 'person'; name: string; line: string }
+  | { label: string; kind: 'para'; text: string; rows?: Row[] }
+
+const row = (label: string, v: string | undefined, href?: string | null): Row[] => (has(v) ? [{ label, value: { text: v.trim(), href } }] : [])
+
+function sections(b: Brief): Section[] {
+  const out: Section[] = []
+
+  const role = [b.title, b.company].filter(has).map((s) => s.trim()).join(', ')
+  if (has(b.name) || role) out.push({ label: 'Person', kind: 'person', name: b.name.trim(), line: role })
+
+  // The main number is the WhatsApp number; a second number that is the same is not repeated.
+  const second = has(b.phone2) && digits(b.phone2) !== digits(b.phone) ? b.phone2 : ''
+  const contact = [
+    ...row('Phone / WhatsApp', b.phone),
+    ...row('Email', b.email, has(b.email) ? `mailto:${b.email.trim()}` : null),
+    ...row('Website', b.website, has(b.website) ? webHref(b.website.trim()) : null),
+    ...row('Second phone', second),
+  ]
+  if (contact.length) out.push({ label: 'Contact', kind: 'rows', rows: contact })
+
+  const socials = b.socials.filter((s) => has(s.url)).flatMap((s) => row(s.platform, s.url, webHref(s.url.trim())))
+  if (socials.length) out.push({ label: 'Socials', kind: 'rows', rows: socials })
+
+  if (has(b.bio)) out.push({ label: 'Bio', kind: 'para', text: b.bio.trim() })
+
+  const card = row('Tagline', b.tagline)
+  if (has(b.notes)) out.push({ label: 'On the card', kind: 'para', text: b.notes.trim(), rows: card })
+  else if (card.length) out.push({ label: 'On the card', kind: 'rows', rows: card })
+
+  if (b.gift) {
+    const by = [b.ordererName, b.ordererPhone].filter(has).map((s) => s.trim()).join(', ')
+    if (by) out.push({ label: 'Gift order', kind: 'para', text: `Ordered by ${by}` })
+  }
   return out
 }
 
-function buildEmail(b: Brief, ref: string, link: string, when: string, consentAt: string, files: { filename: string }[]) {
-  const all = groups(b, consentAt)
-  const fileList = files.length ? files.map((f) => f.filename).join(', ') : 'None'
-  const heading = `New Taply brief: ${b.name} (${ref})`
+/** "business card, logo, profile photo": only what was actually attached. */
+function attachedLine(fields: string[]): string {
+  const names: string[] = []
+  const cards = fields.filter((f) => f === 'card').length
+  if (cards) names.push(cards > 1 ? 'business card (front and back)' : 'business card')
+  if (fields.includes('logo')) names.push('logo')
+  if (fields.includes('photo')) names.push('profile photo')
+  return names.join(', ')
+}
+
+const C = {
+  ink: '#13131f',
+  muted: '#6b6b7b',
+  violet: '#4c1bf1',
+  font: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+}
+
+function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, attachedFields: string[]) {
+  const subject = `New profile details: ${b.name.trim()} (${ref})`
+  const meta = `${ref} · ${nairobiTime(submitted)} Nairobi time`
+  const attached = attachedLine(attachedFields)
+  const consent = `Consent to show on public profile and be contacted: given ${nairobiTime(consentAt)} Nairobi time`
+  const all = sections(b)
+
+  // ---- plain text
+  const textRows = (rows: Row[]) => rows.map((r) => `${r.label}: ${r.value.text}`)
   const text = [
-    heading,
-    `Reference: ${ref}`,
-    `Sent through: ${link}`,
-    `Submitted: ${when} (Nairobi time)`,
-    `Gift / for someone else: ${b.gift ? 'Yes' : 'No'}`,
-    ...all.flatMap((g) => ['', `== ${g.title} ==`, ...g.rows.map(([k, v]) => `${k}: ${v ? v.replace(/\n/g, '\n  ') : '-'}`)]),
+    'Taply',
+    'New profile details',
+    meta,
+    ...all.flatMap((s) => {
+      const body =
+        s.kind === 'person'
+          ? [s.name, s.line].filter(Boolean)
+          : s.kind === 'rows'
+            ? textRows(s.rows)
+            : [...textRows(s.rows ?? []), s.text]
+      return ['', s.label.toUpperCase(), ...body]
+    }),
+    ...(attached ? ['', `Attached: ${attached}`] : []),
     '',
-    `Attached files: ${fileList}`,
+    consent,
   ].join('\n')
-  const cell = 'padding:10px 14px;border-bottom:1px solid #dddad0;vertical-align:top;font:14px/1.5 Arial,sans-serif;'
-  const key = `${cell}color:#55556a;width:34%;`
-  const groupHead =
-    'padding:18px 14px 8px;border-bottom:1px solid #dddad0;font:600 11px/1.4 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#4c1bf1;'
-  const row = ([k, v]: Row) =>
-    `<tr><td style="${key}">${esc(k)}</td><td style="${cell}white-space:pre-wrap;">${v ? esc(v) : '<span style="color:#9a9aa8;">-</span>'}</td></tr>`
-  const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f2ea;color:#13131f;">
-<table role="presentation" style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #dddad0;border-collapse:collapse;width:100%;">
-<tr><td colspan="2" style="padding:20px 14px;border-bottom:3px solid #4c1bf1;font:600 18px/1.3 Arial,sans-serif;">New Taply brief: ${esc(b.name)} <span style="color:#4c1bf1;">(${esc(ref)})</span></td></tr>
-${row(['Reference', ref])}
-${row(['Sent through', link])}
-${row(['Submitted', `${when} (Nairobi time)`])}
-${row(['Gift / for someone else', b.gift ? 'Yes' : 'No'])}
-${all.map((g) => `<tr><td colspan="2" style="${groupHead}">${esc(g.title)}</td></tr>\n${g.rows.map(row).join('\n')}`).join('\n')}
-<tr><td colspan="2" style="${groupHead}">Files</td></tr>
-${row(['Attached files', fileList])}
-</table></body></html>`
-  return { heading, text, html }
+
+  // ---- HTML
+  const p = (style: string, inner: string) => `<p style="margin:0;${style}">${inner}</p>`
+  const textHtml = (s: string) => esc(s).replace(/\n/g, '<br>')
+  const valueHtml = (v: Value) =>
+    v.href
+      ? `<a href="${esc(v.href)}" style="color:${C.violet};text-decoration:underline;word-break:break-all;">${esc(v.text)}</a>`
+      : textHtml(v.text)
+  const rowsHtml = (rows: Row[]) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">${rows
+      .map(
+        (r) =>
+          `<tr><td width="110" valign="top" style="width:110px;padding:7px 12px 5px 0;font:13px/1.5 ${C.font};color:${C.muted};">${esc(r.label)}</td>` +
+          `<td valign="top" style="padding:5px 0;font:15px/1.5 ${C.font};color:${C.ink};word-break:break-word;overflow-wrap:anywhere;">${valueHtml(r.value)}</td></tr>`,
+      )
+      .join('')}</table>`
+  const label = (s: string) =>
+    p(`padding:0 0 8px;font:600 11px/1.4 ${C.font};letter-spacing:.12em;text-transform:uppercase;color:${C.muted};`, esc(s))
+  const para = (s: string) => p(`font:15px/1.6 ${C.font};color:${C.ink};word-break:break-word;overflow-wrap:anywhere;`, textHtml(s))
+  const sectionHtml = (s: Section) => {
+    const body =
+      s.kind === 'person'
+        ? (s.name ? p(`font:700 22px/1.3 ${C.font};color:${C.ink};`, esc(s.name)) : '') +
+          (s.line ? p(`padding-top:2px;font:15px/1.5 ${C.font};color:${C.ink};`, esc(s.line)) : '')
+        : s.kind === 'rows'
+          ? rowsHtml(s.rows)
+          : (s.rows?.length ? rowsHtml(s.rows) + '<div style="height:6px;line-height:6px;">&nbsp;</div>' : '') + para(s.text)
+    return `<tr><td style="padding:0 0 28px;">${label(s.label)}${body}</td></tr>`
+  }
+
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
+<title>${esc(subject)}</title></head>
+<body style="margin:0;padding:0;background:#ffffff;color:${C.ink};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;">
+<tr><td align="center" style="padding:28px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;border-collapse:collapse;">
+<tr><td style="padding:0 0 24px;">${p(`font:700 15px/1 ${C.font};letter-spacing:-.01em;color:${C.violet};`, 'Taply')}</td></tr>
+<tr><td style="padding:0 0 6px;">${p(`font:700 26px/1.25 ${C.font};color:${C.ink};`, 'New profile details')}</td></tr>
+<tr><td style="padding:0 0 32px;">${p(`font:14px/1.5 ${C.font};color:${C.muted};`, esc(meta))}</td></tr>
+${all.map(sectionHtml).join('\n')}
+${attached ? `<tr><td style="padding:0 0 28px;">${p(`font:14px/1.5 ${C.font};color:${C.ink};`, `<span style="color:${C.muted};">Attached:</span> ${esc(attached)}`)}</td></tr>` : ''}
+<tr><td style="padding:8px 0 0;">${p(`font:12px/1.5 ${C.font};color:${C.muted};`, esc(consent))}</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`
+  return { subject, text, html }
 }
 
 // ---------------------------------------------------------------- multipart
@@ -335,7 +428,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
   // A fresh reference for every submission: the link is shared, so it can't carry one.
   const ref = newRef()
-  const link = check.payload.universal ? 'Universal link' : `Per-client link (${check.payload.id})`
 
   const parsed = await parse(req)
   if (parsed.error) return sendJson(res, parsed.error.status, { ok: false, error: 'file', file: parsed.error.file, message: parsed.error.message })
@@ -373,11 +465,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     contentType: MIME[f.kind],
   }))
   const now = new Date()
-  const nairobi = (d: Date, timeStyle: 'short' | 'medium') =>
-    new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle }).format(d)
-  const when = nairobi(now, 'short')
-  const consentAt = nairobi(consentTime(brief, now), 'medium')
-  const { heading: subject, text, html } = buildEmail(brief, ref, link, when, consentAt, attachments)
+  const { subject, text, html } = buildEmail(brief, ref, now, consentTime(brief, now), parsed.files.map((f) => f.field))
 
   const { NOTIFY_EMAIL, GMAIL_USER, GMAIL_APP_PASSWORD } = process.env
   if (!NOTIFY_EMAIL || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
