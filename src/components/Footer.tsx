@@ -1,4 +1,4 @@
-import { BrandMark, ORDER_LINK_NOTE, ORDER_URL } from './shared'
+import { Arrow, BrandMark, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 
 export function Footer() {
   return (
@@ -26,6 +26,23 @@ export function Footer() {
           </nav>
 
           <div>
+            <h2 className="mono-label footer__h">Contact</h2>
+            <ul>
+              <li>
+                <a href="tel:+254140986500">+254 140 986 500</a>
+              </li>
+              <li>
+                <a href={ORDER_URL} target="_blank" rel="noreferrer">
+                  <span>
+                    Order on <span className="footer__nowrap">WhatsApp<Arrow /></span>
+                  </span>
+                  <span className="sr-only">{ORDER_LINK_NOTE}</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div className="footer__taply">
             <h2 className="mono-label footer__h">Taply</h2>
             <ul>
               <li>
@@ -44,7 +61,12 @@ export function Footer() {
 
         <div className="footer__bottom">
           <p>© 2026 Taply. All rights reserved.</p>
-          <p>Digital identity, made human.</p>
+          <p className="footer__credit">
+            Website built &amp; designed by{' '}
+            <a href="https://the-company-design-website.vercel.app/?utm_source=luxecard&utm_medium=footer" target="_blank" rel="noopener noreferrer">
+              thecompany.design
+            </a>
+          </p>
         </div>
       </div>
     </footer>

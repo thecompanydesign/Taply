@@ -27,7 +27,11 @@
   box-sizing: border-box;
 }
 
+/* The canvas below the footer (overscroll, behind mobile toolbars) is the
+   footer's Carbon; body keeps Warm Paper behind every section. */
 html {
+  background: var(--carbon);
+  overscroll-behavior-y: none;
   scroll-behavior: smooth;
   scroll-padding-top: 96px;
   -webkit-text-size-adjust: 100%;
@@ -35,6 +39,7 @@ html {
 
 body {
   margin: 0;
+  overscroll-behavior-y: none;
   background: var(--warm-paper);
   color: var(--carbon);
   font-family: var(--font-sans);
@@ -100,7 +105,8 @@ a {
    Layout + type utilities
    ========================================================================== */
 .container {
-  width: min(100% - 2 * var(--gutter), var(--max));
+  /* viewport-fit=cover: in landscape, keep content clear of the iPhone notch. */
+  width: min(100% - 2 * max(var(--gutter), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px)), var(--max));
   margin-inline: auto;
 }
 
@@ -2485,14 +2491,15 @@ a {
    Footer
    ========================================================================== */
 .footer {
-  padding: 96px 0 36px;
+  /* The dark footer runs under the iPhone toolbar and home indicator. */
+  padding: 96px 0 calc(36px + env(safe-area-inset-bottom, 0px));
   background: var(--carbon);
   color: var(--warm-paper);
   border-top: 1px solid rgba(244, 242, 234, 0.14);
 }
 .footer__grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
   gap: 56px;
 }
 .footer__logo {
@@ -2522,6 +2529,24 @@ a {
 }
 .footer li a:hover {
   color: var(--signal-lime);
+}
+.footer__nowrap {
+  white-space: nowrap;
+}
+.footer li a .arrow {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: -1px;
+}
+.footer__credit a {
+  color: var(--tap-violet);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  transition: text-decoration-thickness 200ms;
+}
+.footer__credit a:hover {
+  text-decoration-thickness: 3px;
 }
 .footer__bottom {
   display: flex;
@@ -2960,9 +2985,13 @@ a {
   .footer {
     padding-top: 72px;
   }
+  /* Brand, then Explore | Contact side by side, then Taply. */
   .footer__grid {
-    grid-template-columns: 1fr;
-    gap: 36px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 36px 20px;
+  }
+  .footer__taply {
+    grid-column: 1 / -1;
   }
   .footer__bottom {
     margin-top: 48px;

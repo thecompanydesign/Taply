@@ -2,11 +2,15 @@
    Client onboarding form (/onboard). Uses the site's tokens (styles.css).
    One scrolling page: a stack of sections, a sticky live preview on desktop.
    ========================================================================== */
+/* /onboard has no dark footer: its canvas stays Warm Paper (no strip in either colour). */
+html:has(.ob) {
+  background: var(--warm-paper);
+}
 .ob {
   --error: #a3231a;
   position: relative;
   min-height: 100vh;
-  min-height: 100svh;
+  min-height: 100dvh;
   overflow-x: clip;
   background: var(--warm-paper);
   color: var(--carbon);
