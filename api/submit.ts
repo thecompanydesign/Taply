@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import busboy from 'busboy'
 import nodemailer from 'nodemailer'
+import { randomBytes } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -52,19 +53,33 @@ const typeList = (kinds: Kind[]) => {
 }
 
 // ---------------------------------------------------------------- abuse limits
-const RATE_MAX = 5 // submissions per IP per hour (best effort: per function instance)
+// Best effort (kept in memory, so per function instance): accepted submissions per IP.
+const HOUR = 3600_000
+const DAY = 24 * HOUR
+const PER_HOUR = 5
+const PER_DAY = 20
 const hits = new Map<string, number[]>()
+function recentHits(ip: string, now: number): number[] {
+  const recent = (hits.get(ip) ?? []).filter((t) => now - t < DAY)
+  if (recent.length) hits.set(ip, recent)
+  else hits.delete(ip)
+  return recent
+}
 function rateLimited(ip: string): boolean {
   const now = Date.now()
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < 3600_000)
-  if (recent.length >= RATE_MAX) {
-    hits.set(ip, recent)
-    return true
-  }
-  recent.push(now)
-  hits.set(ip, recent)
-  return false
+  const recent = recentHits(ip, now)
+  return recent.length >= PER_DAY || recent.filter((t) => now - t < HOUR).length >= PER_HOUR
 }
+function recordHit(ip: string) {
+  const now = Date.now()
+  hits.set(ip, [...recentHits(ip, now), now])
+  if (hits.size > 5000) for (const k of [...hits.keys()].slice(0, 1000)) hits.delete(k) // bound memory
+}
+
+// ---------------------------------------------------------------- reference
+// TP- plus 6 characters without look-alikes (no 0/O, 1/I). 32 symbols, so a byte maps without bias.
+const REF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const newRef = () => 'TP-' + [...randomBytes(6)].map((b) => REF_ALPHABET[b % REF_ALPHABET.length]).join('')
 
 // ---------------------------------------------------------------- files
 /** File type from its first bytes, never from the name or the browser's claim. */
@@ -91,10 +106,22 @@ function unsafeSvg(b: Buffer): boolean {
 }
 
 // ---------------------------------------------------------------- the brief
-const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max + 1) : '')
+// Control characters (keeping tab and newline for the multi-line fields) and invisible
+// direction overrides, which could disguise text in the email.
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g
+/**
+ * A clean string. Over-long values are cut to one character past the limit,
+ * so validateBrief still rejects them rather than silently shortening them.
+ */
+const str = (v: unknown, max: number, multiline = false) => {
+  if (typeof v !== 'string') return ''
+  let s = v.replace(/\r\n?/g, '\n').replace(CONTROL, '')
+  if (!multiline) s = s.replace(/[\t\n]+/g, ' ')
+  return s.trim().slice(0, max + 1)
+}
 
 /** Rebuilds the brief from untrusted JSON, keeping only known fields of the right type. */
-function cleanBrief(raw: unknown): Brief {
+function cleanBrief(raw: unknown): { brief: Brief; socialCount: number } {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const b: Brief = { ...EMPTY_BRIEF }
   b.gift = r.gift === true
@@ -107,7 +134,8 @@ function cleanBrief(raw: unknown): Brief {
   b.phone2 = str(r.phone2, MAX.phone)
   b.email = str(r.email, MAX.email)
   b.website = str(r.website, MAX.url)
-  b.socials = (Array.isArray(r.socials) ? r.socials : [])
+  const socials = Array.isArray(r.socials) ? r.socials : []
+  b.socials = socials
     .slice(0, MAX_SOCIALS + 1)
     .map((x) => {
       const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
@@ -115,12 +143,12 @@ function cleanBrief(raw: unknown): Brief {
       return { platform, url: str(o.url, MAX.url) }
     })
     .filter((x) => x.url)
-  b.bio = str(r.bio, MAX.bio)
+  b.bio = str(r.bio, MAX.bio, true)
   b.tagline = str(r.tagline, MAX.tagline)
-  b.notes = str(r.notes, MAX.notes)
+  b.notes = str(r.notes, MAX.notes, true)
   b.consent = r.consent === true
   b.consentAt = typeof r.consentAt === 'string' ? r.consentAt.slice(0, 40) : ''
-  return b
+  return { brief: b, socialCount: socials.length }
 }
 
 /** The browser's consent time, if it is a sane one (not in the future, not older than 30 days); else now. */
@@ -185,14 +213,14 @@ function groups(b: Brief, consentAt: string): Group[] {
   return out
 }
 
-function buildEmail(b: Brief, ref: string, client: string, when: string, consentAt: string, files: { filename: string }[]) {
+function buildEmail(b: Brief, ref: string, link: string, when: string, consentAt: string, files: { filename: string }[]) {
   const all = groups(b, consentAt)
   const fileList = files.length ? files.map((f) => f.filename).join(', ') : 'None'
-  const heading = `New Taply card brief: ${b.company || b.name} (${ref})`
+  const heading = `New Taply brief: ${b.name} (${ref})`
   const text = [
     heading,
     `Reference: ${ref}`,
-    `Link prepared for: ${client}`,
+    `Sent through: ${link}`,
     `Submitted: ${when} (Nairobi time)`,
     `Gift / for someone else: ${b.gift ? 'Yes' : 'No'}`,
     ...all.flatMap((g) => ['', `== ${g.title} ==`, ...g.rows.map(([k, v]) => `${k}: ${v ? v.replace(/\n/g, '\n  ') : '-'}`)]),
@@ -207,9 +235,9 @@ function buildEmail(b: Brief, ref: string, client: string, when: string, consent
     `<tr><td style="${key}">${esc(k)}</td><td style="${cell}white-space:pre-wrap;">${v ? esc(v) : '<span style="color:#9a9aa8;">-</span>'}</td></tr>`
   const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f2ea;color:#13131f;">
 <table role="presentation" style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #dddad0;border-collapse:collapse;width:100%;">
-<tr><td colspan="2" style="padding:20px 14px;border-bottom:3px solid #4c1bf1;font:600 18px/1.3 Arial,sans-serif;">New Taply card brief: ${esc(b.company || b.name)} <span style="color:#4c1bf1;">(${esc(ref)})</span></td></tr>
+<tr><td colspan="2" style="padding:20px 14px;border-bottom:3px solid #4c1bf1;font:600 18px/1.3 Arial,sans-serif;">New Taply brief: ${esc(b.name)} <span style="color:#4c1bf1;">(${esc(ref)})</span></td></tr>
 ${row(['Reference', ref])}
-${row(['Link prepared for', client])}
+${row(['Sent through', link])}
 ${row(['Submitted', `${when} (Nairobi time)`])}
 ${row(['Gift / for someone else', b.gift ? 'Yes' : 'No'])}
 ${all.map((g) => `<tr><td colspan="2" style="${groupHead}">${esc(g.title)}</td></tr>\n${g.rows.map(row).join('\n')}`).join('\n')}
@@ -287,8 +315,9 @@ function parse(req: IncomingMessage): Promise<Parsed> {
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method' })
 
-  if (rateLimited(clientIp(req)))
-    return sendJson(res, 429, { ok: false, error: 'rate', message: 'Too many submissions from this connection. Please try again in an hour, or message us on WhatsApp.' })
+  const ip = clientIp(req)
+  if (rateLimited(ip))
+    return sendJson(res, 429, { ok: false, error: 'rate', message: 'Too many submissions, please try again later or WhatsApp us.' })
 
   const length = Number(req.headers['content-length'] || 0)
   if (length > MAX_TOTAL_BYTES + 256 * 1024)
@@ -304,13 +333,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     return sendJson(res, 401, { ok: false, error: 'link', reason: check.reason, message: "This link isn't active." })
   }
-  const { id: ref, client } = check.payload
+  // A fresh reference for every submission: the link is shared, so it can't carry one.
+  const ref = newRef()
+  const link = check.payload.universal ? 'Universal link' : `Per-client link (${check.payload.id})`
 
   const parsed = await parse(req)
   if (parsed.error) return sendJson(res, parsed.error.status, { ok: false, error: 'file', file: parsed.error.file, message: parsed.error.message })
 
   // Spam checks: honeypot filled, or the form was filled impossibly fast. Bots get a quiet success.
-  if (parsed.fields.fax) return sendJson(res, 200, { ok: true, ref })
+  if (parsed.fields.fax) {
+    recordHit(ip)
+    return sendJson(res, 200, { ok: true, ref })
+  }
   const elapsed = Number(parsed.fields.elapsed)
   if (!Number.isFinite(elapsed) || elapsed < MIN_FILL_SECONDS)
     return sendJson(res, 400, { ok: false, error: 'too-fast', message: 'That was very quick. Please check your details and send again.' })
@@ -321,7 +355,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   } catch {
     return sendJson(res, 400, { ok: false, error: 'invalid', message: 'The form data could not be read.' })
   }
-  const brief = cleanBrief(raw)
+  const { brief, socialCount } = cleanBrief(raw)
+  if (socialCount > MAX_SOCIALS)
+    return sendJson(res, 400, { ok: false, error: 'invalid', fields: { socials: `Up to ${MAX_SOCIALS} social links.` }, message: `Please add at most ${MAX_SOCIALS} social links.` })
   const errors = validateBrief(brief)
   if (Object.keys(errors).length) return sendJson(res, 400, { ok: false, error: 'invalid', fields: errors, message: 'Please check the highlighted fields.' })
 
@@ -341,7 +377,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle }).format(d)
   const when = nairobi(now, 'short')
   const consentAt = nairobi(consentTime(brief, now), 'medium')
-  const { heading: subject, text, html } = buildEmail(brief, ref, client, when, consentAt, attachments)
+  const { heading: subject, text, html } = buildEmail(brief, ref, link, when, consentAt, attachments)
 
   const { NOTIFY_EMAIL, GMAIL_USER, GMAIL_APP_PASSWORD } = process.env
   if (!NOTIFY_EMAIL || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
@@ -357,6 +393,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       console.warn('[submit] could not write the email preview', e)
     }
     console.log(`\n[submit] DEV MODE, not emailed\nSubject: ${subject}\n${text}\nFiles: ${attachments.map((a) => `${a.filename} (${a.content.length} bytes)`).join(', ') || 'none'}\nHTML preview: ${preview}\n`)
+    recordHit(ip)
     return sendJson(res, 200, { ok: true, ref, dev: true })
   }
 
@@ -376,5 +413,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     console.error('[submit] sending failed', e)
     return sendJson(res, 502, { ok: false, error: 'send', message: "We couldn't send your details just now. Please try again, or message us on WhatsApp." })
   }
+  recordHit(ip)
   return sendJson(res, 200, { ok: true, ref })
 }

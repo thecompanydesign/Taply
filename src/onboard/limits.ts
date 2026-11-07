@@ -7,7 +7,7 @@
 export const MAX = {
   name: 80,
   title: 80,
-  company: 100,
+  company: 80,
   phone: 24,
   email: 120,
   url: 300,

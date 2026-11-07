@@ -1,12 +1,19 @@
 /*
  * Signed onboarding links. A token is `<payload>.<signature>`:
- *   payload   = base64url(JSON {id, client, exp})   exp in Unix seconds
+ *   payload   = base64url(JSON)
  *   signature = base64url(HMAC-SHA256(payload, FORM_LINK_SECRET))
+ * Two payloads are accepted:
+ *   {id: "universal"}       the one shared link: no client name, never expires
+ *   {id, client, exp}       an older per-client link (exp in Unix seconds), kept so links already sent still work
  * scripts/make-link.mjs creates them; /api/verify and /api/submit check them.
+ * Changing FORM_LINK_SECRET invalidates every link, the universal one included.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-export type LinkPayload = { id: string; client: string; exp: number }
+export const UNIVERSAL_ID = 'universal'
+
+/** `id` is "universal" or the per-client link's reference (only used to tell links apart, never shown as the brief's reference). */
+export type LinkPayload = { id: string; universal: boolean }
 
 export type TokenCheck = { ok: true; payload: LinkPayload } | { ok: false; reason: 'missing' | 'invalid' | 'expired' | 'not-configured' }
 
@@ -25,14 +32,19 @@ export function verifyToken(token: string | null | undefined, secret = process.e
   const expected = Buffer.from(sign(body, secret))
   const given = Buffer.from(sig)
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return { ok: false, reason: 'invalid' }
-  let payload: LinkPayload
+  let payload: Record<string, unknown>
   try {
     payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
   } catch {
     return { ok: false, reason: 'invalid' }
   }
+  if (!payload || typeof payload !== 'object') return { ok: false, reason: 'invalid' }
+
+  // The universal link.
+  if (payload.id === UNIVERSAL_ID) return { ok: true, payload: { id: UNIVERSAL_ID, universal: true } }
+
+  // An older per-client link.
   if (
-    !payload ||
     typeof payload.id !== 'string' ||
     typeof payload.client !== 'string' ||
     typeof payload.exp !== 'number' ||
@@ -40,5 +52,5 @@ export function verifyToken(token: string | null | undefined, secret = process.e
   )
     return { ok: false, reason: 'invalid' }
   if (payload.exp * 1000 < Date.now()) return { ok: false, reason: 'expired' }
-  return { ok: true, payload: { id: payload.id, client: payload.client.slice(0, 120), exp: payload.exp } }
+  return { ok: true, payload: { id: payload.id, universal: false } }
 }

@@ -76,42 +76,57 @@ unaffected.
    `.env.example` lists the same names. For local work, copy it to `.env.local` (never committed;
    `.env*` is in `.gitignore`). Never put real values in the code or the repository.
 
-### Creating a link for a client
+### The form link
+
+There is one universal link for every client. With `FORM_LINK_SECRET` and `SITE_URL` in `.env.local`, run:
 
 ```bash
-FORM_LINK_SECRET=... node scripts/make-link.mjs "Client or company name" 14 https://your-domain
+npm run link
 ```
 
-(or set `FORM_LINK_SECRET` and `SITE_URL` in `.env.local` and run `npm run link -- "Client name" 14`).
-The second argument is how many days the link stays valid (default 14). The script prints the link and,
-separately, the reference ID (for example `TP-7K3QXM`). The link is signed with `FORM_LINK_SECRET`, so it
-can't be edited or guessed; changing the secret in Vercel deactivates every link already sent.
+It prints the link (`SITE_URL/onboard?t=<token>`). The token is signed with `FORM_LINK_SECRET` and holds no
+client name and no expiry, so the same link can be sent to everyone, again and again, and the command
+always prints the same link. Each submission gets its own reference (for example `TP-7K3QXM`), created by
+the server when it is sent.
+
+For a one-off link that expires, pass a name and a number of days (default 14):
+
+```bash
+npm run link -- "Client or company name" 14
+```
+
+Per-client links made before the universal link still work until they expire. A link can't be edited or
+guessed. **Changing `FORM_LINK_SECRET` in Vercel invalidates every link, including the universal one**:
+run `npm run link` again with the new secret and send the new link out.
 
 ### What the client sees
 
-- An inactive, edited or expired link shows "This link isn't active." with a WhatsApp button, and no form.
-- A valid link shows "Prepared for <client>" and three short steps: about you; brand and profile (card
-  line, bio, links, languages, colours, notes); files (logo, profile photo, optional business card front
-  and back), then a consent checkbox.
+- A missing, edited or expired link shows "This link isn't active." with a WhatsApp button, and no form.
+- A valid link shows the form, greeting with "Hi," (no name), on one page: gift toggle, business card
+  upload, details, contact and social links, photo, logo and bio, card tagline and notes, then consent.
 - A live preview of their card (the same flip card as the "Your card" section) updates as they type.
 - Typed text is kept in the browser if they refresh (files are not); it is cleared after sending.
 - Images are resized in the browser (1600px max, JPEG about 0.82; logos with transparency stay PNG; SVG and
   PDF are untouched). Everything together must stay under 4 MB.
-- After sending: a confirmation with the reference, what happens next, and a WhatsApp button.
+- After sending: "Thank you, <first name>." (the card owner's, also for gifts), the reference, a draft
+  of their card, what happens next, and a WhatsApp button.
 
 ### What arrives by email
 
-Subject `New Taply card brief: <company> (<ref>)`, sent to `NOTIFY_EMAIL` from `GMAIL_USER`, with
-Reply-To set to the client's email. It has a table (HTML and plain text) of every field, the client name
-and reference from the link, the time in Nairobi, and the files attached as `<ref>-logo.png`,
-`<ref>-photo.jpg`, `<ref>-business-card-1.jpg` and so on. Nothing is stored on the server.
+Subject `New Taply brief: <full name> (<ref>)`, sent to `NOTIFY_EMAIL` from `GMAIL_USER`, with Reply-To
+set to the client's email. It has a table (HTML and plain text) of every field, the reference, which kind
+of link was used, the time in Nairobi, and the files attached as `<ref>-logo.png`, `<ref>-photo.jpg`,
+`<ref>-business-card-1.jpg` and so on. Nothing is stored on the server.
 
 ### Protection
 
-The server checks the signed link again, a hidden honeypot field, a minimum fill time, a best-effort limit
-of 5 submissions per connection per hour, field lengths, and every file by its bytes (PNG, JPEG, WebP, SVG,
-PDF only; SVGs with scripts or event handlers are refused; at most 5 files and 4 MB in total). All values
-are escaped in the email.
+Because the link is shared, the server checks the signed link again, a hidden honeypot field, a minimum
+fill time, and a best-effort limit of 5 submissions per connection per hour and 20 per day (over it, the
+form says "Too many submissions" with a WhatsApp button). It requires the full name and WhatsApp number,
+caps every text field (name and job title 80, company 80, bio 300, tagline 60, notes 1000, links 300),
+strips control characters, refuses more than 8 social links, and checks every file by its bytes (PNG,
+JPEG, WebP, HEIC, SVG, PDF only; SVGs with scripts or event handlers are refused; at most 5 files and 4 MB
+in total). All values are escaped in the email.
 
 If the mail variables are missing on Vercel, the form says "The form isn't set up yet" and offers
 WhatsApp, so nobody thinks their details were sent. Locally (`npm run dev`, which serves `/api/*` through

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, ReactNode, RefObject } from 'react'
-import { BrandMark, CTA, WHATSAPP_NUMBER } from '../components/shared'
+import { BrandMark, CTA, ORDER_LINK_NOTE, ORDER_URL, WHATSAPP_NUMBER } from '../components/shared'
 import { CardBody, CardStage, FlipButton, StaticCards, usePrefersReducedMotion } from '../components/YourCardSection'
 import { EMPTY_BRIEF, MAX, MAX_CARD_FILES, MAX_SOCIALS, MAX_TOTAL_BYTES, PLATFORMS, validateBrief } from './limits'
 import type { Brief, FieldErrors, Platform, Social } from './limits'
@@ -20,16 +20,27 @@ const LINK_HELP = wa("Hi Taply! My form link isn't working. Kindly send a new on
 const SETUP_HELP = wa("Hi Taply! I tried to send my card details through the form, but it isn't set up yet. Can you help?")
 const REDUCED = '(prefers-reduced-motion: reduce)'
 
-type Link = { ref: string; client: string }
+/** `key` keeps an unsent draft per link in this browser: "universal", or an older per-client link's ID. */
+type Link = { key: string }
 /** What the confirmation page's draft card shows: the submitted values and the local file URLs. */
 type Draft = { name: string; title: string; company: string; tagline: string; logoUrl?: string; photoUrl?: string; urls: string[] }
-type Done = { dev: boolean; firstName: string; draft: Draft }
+/** `ref` is the reference the server created for this submission. */
+type Done = { dev: boolean; ref: string; firstName: string; draft: Draft }
 type Screen =
   | { kind: 'loading' }
   | { kind: 'invalid' }
   | { kind: 'not-configured' }
   | { kind: 'form'; link: Link }
-  | ({ kind: 'success'; link: Link } & Done)
+  | ({ kind: 'success' } & Done)
+
+/** First word of the full name, capitalised: "kim otieno" and "KIM OTIENO" give "Kim"; "McKenzie" stays as typed. */
+function firstNameOf(full: string): string {
+  const word = full.trim().split(/\s+/)[0] ?? ''
+  if (!word) return ''
+  const mixed = word !== word.toLowerCase() && word !== word.toUpperCase()
+  if (mixed) return word.charAt(0).toUpperCase() + word.slice(1)
+  return word.toLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase())
+}
 
 type Files = Record<Slot, Prepared[]>
 const NO_FILES: Files = { logo: [], photo: [], card: [] }
@@ -147,7 +158,7 @@ export default function OnboardingPage() {
       .then(async (r) => {
         const body = await r.json().catch(() => ({}))
         if (gone) return
-        if (r.ok && body.ok) setScreen({ kind: 'form', link: { ref: body.ref, client: body.client } })
+        if (r.ok && body.ok && typeof body.key === 'string') setScreen({ kind: 'form', link: { key: body.key } })
         else if (body.reason === 'not-configured') setScreen({ kind: 'not-configured' })
         else setScreen({ kind: 'invalid' })
       })
@@ -187,12 +198,12 @@ export default function OnboardingPage() {
           <BriefForm
             link={screen.link}
             token={token!}
-            onDone={(done) => setScreen({ kind: 'success', link: screen.link, ...done })}
+            onDone={(done) => setScreen({ kind: 'success', ...done })}
             onLinkInvalid={() => setScreen({ kind: 'invalid' })}
             onNotConfigured={() => setScreen({ kind: 'not-configured' })}
           />
         )}
-        {screen.kind === 'success' && <Success link={screen.link} dev={screen.dev} firstName={screen.firstName} draft={screen.draft} />}
+        {screen.kind === 'success' && <Success refCode={screen.ref} dev={screen.dev} firstName={screen.firstName} draft={screen.draft} />}
       </main>
     </div>
   )
@@ -216,7 +227,7 @@ function Notice({ title, line, cta, href }: { title: string; line: string; cta: 
   )
 }
 
-function Success({ link, dev, firstName, draft }: { link: Link; dev: boolean; firstName: string; draft: Draft }) {
+function Success({ refCode, dev, firstName, draft }: { refCode: string; dev: boolean; firstName: string; draft: Draft }) {
   const ref = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     ref.current?.focus()
@@ -235,7 +246,7 @@ function Success({ link, dev, firstName, draft }: { link: Link; dev: boolean; fi
       </h1>
       <p className="ob-ref">
         <span className="ob-ref__k">Reference</span>
-        <span className="ob-ref__v">{link.ref}</span>
+        <span className="ob-ref__v">{refCode}</span>
       </p>
       <DraftCard draft={draft} />
       <h2 className="ob-next__title">What happens next</h2>
@@ -255,7 +266,7 @@ function Success({ link, dev, firstName, draft }: { link: Link; dev: boolean; fi
       </ol>
       <p className="ob-store">We don't keep your details or files on our server: they go straight to the Taply team by email.</p>
       <div className="ob-screen__cta">
-        <CTA href={wa(`Hi Taply! I have a question about my card brief (${link.ref}).`)} variant="violet" external srNote=" (opens WhatsApp in a new tab)">
+        <CTA href={wa(`Hi Taply! I have a question about my card brief (${refCode}).`)} variant="violet" external srNote=" (opens WhatsApp in a new tab)">
           Questions? Message us on WhatsApp
         </CTA>
       </div>
@@ -302,7 +313,7 @@ type FormProps = {
 }
 
 function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: FormProps) {
-  const restored = useMemo(() => loadDraft(link.ref), [link.ref])
+  const restored = useMemo(() => loadDraft(link.key), [link.key])
   const [brief, setBrief] = useState<Brief>(restored ?? { ...EMPTY_BRIEF, socials: [{ platform: 'LinkedIn', url: '' }] })
   const [files, setFiles] = useState<Files>(NO_FILES)
   const [fileErr, setFileErr] = useState<Partial<Record<Slot, string>>>({})
@@ -310,9 +321,10 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   const [announce, setAnnounce] = useState(restored ? 'We restored the details you typed earlier.' : '')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  const [rateLimited, setRateLimited] = useState(false)
   const [side, setSide] = useState<'front' | 'back'>('front')
   const [hp, setHp] = useState('')
-  const startedAt = useRef(firstOpened(link.ref))
+  const startedAt = useRef(firstOpened(link.key))
   const formRef = useRef<HTMLFormElement>(null)
   const briefRef = useRef(brief)
   briefRef.current = brief
@@ -323,9 +335,9 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
 
   // Draft: typed text only (never files), saved shortly after each change.
   useEffect(() => {
-    const id = window.setTimeout(() => saveDraft(link.ref, brief), 400)
+    const id = window.setTimeout(() => saveDraft(link.key, brief), 400)
     return () => window.clearTimeout(id)
-  }, [brief, link.ref])
+  }, [brief, link.key])
 
   // Object URLs for thumbnails are released when the form goes away, unless
   // the confirmation page took them over for its draft card.
@@ -456,6 +468,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
     }
     setSending(true)
     setSendError('')
+    setRateLimited(false)
     setAnnounce('Sending your details…')
     const payload: Brief = {
       ...brief,
@@ -472,13 +485,14 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
       const r = await fetch('/api/submit', { method: 'POST', headers: { 'x-taply-token': token }, body: fd })
       const body = await r.json().catch(() => ({}))
       if (r.ok && body.ok) {
-        clearDraft(link.ref)
+        clearDraft(link.key)
         handedOff.current = true
         const all = Object.values(files).flat()
-        const who = brief.gift ? brief.ordererName : brief.name
         onDone({
           dev: !!body.dev,
-          firstName: who.trim().split(/\s+/)[0] ?? '',
+          ref: typeof body.ref === 'string' ? body.ref : '',
+          // Always the card owner's name, also when someone else filled the form in as a gift.
+          firstName: firstNameOf(brief.name),
           draft: {
             name: brief.name.trim(),
             title: brief.title.trim(),
@@ -501,6 +515,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
         return
       }
       if (body.error === 'file' && body.file) setFileErr((fe) => ({ ...fe, [body.file]: body.message }))
+      if (r.status === 429 || body.error === 'rate') setRateLimited(true)
       setSendError(body.message || "We couldn't send your details just now. Please try again.")
       setAnnounce(body.message || "We couldn't send your details just now.")
     } catch (err) {
@@ -538,7 +553,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   return (
     <>
       <div className="ob-head ob-fade">
-        <p className="ob-hi">Hi {link.client},</p>
+        <p className="ob-hi">Hi,</p>
         <h1 className="h2 ob-head__title">
           Your digital <span className="accent">profile</span>
         </h1>
@@ -790,9 +805,15 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
                     <Bang />
                     {sendError}
                   </p>
-                  <a href={wa(`Hi Taply! I'm having trouble sending my card details (${link.ref}).`)} target="_blank" rel="noopener noreferrer" className="ob-add">
-                    Message us on WhatsApp<span className="sr-only"> (opens WhatsApp in a new tab)</span>
-                  </a>
+                  {rateLimited ? (
+                    <CTA href={ORDER_URL} variant="violet" external srNote={ORDER_LINK_NOTE}>
+                      Message us on WhatsApp
+                    </CTA>
+                  ) : (
+                    <a href={wa("Hi Taply! I'm having trouble sending my card details.")} target="_blank" rel="noopener noreferrer" className="ob-add">
+                      Message us on WhatsApp<span className="sr-only"> (opens WhatsApp in a new tab)</span>
+                    </a>
+                  )}
                 </div>
               )}
 

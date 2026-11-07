@@ -598,6 +598,9 @@
   gap: 8px;
   color: var(--error);
 }
+.ob-senderr .cta {
+  margin-top: 14px;
+}
 .ob-hp {
   position: absolute;
   left: -10000px;
