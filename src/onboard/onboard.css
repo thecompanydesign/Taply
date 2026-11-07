@@ -8,6 +8,8 @@ html:has(.ob) {
 }
 .ob {
   --error: #a3231a;
+  /* Gap from the top bar's divider to the first text on the form and confirmation pages. */
+  --ob-top-gap: 80px;
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
@@ -52,14 +54,15 @@ html:has(.ob) {
   text-transform: uppercase;
 }
 
-/* Top padding: the heading's letters start about 80px below the top bar's divider (56px under 768px). */
-.ob-head {
-  padding-block: 70px 44px;
-}
 @media (max-width: 767px) {
-  .ob-head {
-    padding-top: 50px;
+  .ob {
+    --ob-top-gap: 56px;
   }
+}
+/* The heading's letters start --ob-top-gap below the divider: the padding
+   leaves out the space above the letters inside the line box (about 0.14em). */
+.ob-head {
+  padding-block: calc(var(--ob-top-gap) - 0.14 * clamp(44px, 6vw, 80px)) 44px;
 }
 .ob-head__title {
   font-size: clamp(44px, 6vw, 80px);
@@ -198,6 +201,21 @@ html:has(.ob) {
 }
 .ob-input[aria-invalid='true'] {
   border-color: var(--error);
+}
+/* Autofilled fields look like any filled field: white, Carbon text, same border and focus ring. */
+.ob-form {
+  color-scheme: light;
+}
+.ob input:-webkit-autofill,
+.ob input:-webkit-autofill:hover,
+.ob input:-webkit-autofill:focus,
+.ob textarea:-webkit-autofill,
+.ob select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--cloud) inset;
+  box-shadow: 0 0 0 1000px var(--cloud) inset;
+  -webkit-text-fill-color: var(--carbon);
+  caret-color: var(--carbon);
+  transition: background-color 9999s ease-out 0s;
 }
 .ob-select {
   padding-right: 40px;
@@ -681,12 +699,13 @@ html:has(.ob) {
   width: min(100%, 560px);
   margin: 0;
 }
-.ob-draft .ycard__flip {
-  margin-left: 0;
-}
 .ob-draft__note {
-  max-width: 560px;
+  width: min(100%, 560px);
+  max-width: none;
   margin-top: 14px;
+  padding-inline: max(0px, (min(100%, 560px) - 64ch) / 2);
+  text-align: center;
+  text-wrap: balance;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
@@ -698,6 +717,9 @@ html:has(.ob) {
 .ob-screen {
   max-width: 720px;
   padding-block: 64px 140px;
+}
+.ob-screen--done {
+  padding-top: calc(var(--ob-top-gap) - 3px);
 }
 .ob-fade {
   animation: ob-step-in 700ms var(--ease) both;
@@ -763,10 +785,9 @@ html:has(.ob) {
   letter-spacing: -0.02em;
 }
 .ob-next {
-  margin: 18px 0 0;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--soft-stone);
 }
 .ob-next li {
   display: grid;
@@ -777,14 +798,17 @@ html:has(.ob) {
   font-size: 17px;
   line-height: 1.5;
 }
+.ob-next li:last-child {
+  border-bottom: 0;
+}
 .ob-next__n {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.95;
   color: var(--tap-violet);
 }
-.ob-store {
-  margin-top: 24px;
+.ob-done__note {
+  margin-top: 8px;
   font-size: 15px;
   color: var(--ink-soft);
 }
@@ -813,7 +837,7 @@ html:has(.ob) {
     height: 25.4px;
   }
   .ob-head {
-    padding-block: 50px 32px;
+    padding-bottom: 32px;
   }
   .ob-head__title,
   .ob-screen__title {
@@ -839,6 +863,9 @@ html:has(.ob) {
   }
   .ob-screen {
     padding-block: 36px 96px;
+  }
+  .ob-screen.ob-screen--done {
+    padding-top: calc(var(--ob-top-gap) - 3px);
   }
   .ob-screen__cta .cta {
     width: 100%;

@@ -234,7 +234,7 @@ function Success({ refCode, dev, firstName, draft }: { refCode: string; dev: boo
     window.scrollTo({ top: 0 })
   }, [])
   return (
-    <section className="ob-screen ob-fade" aria-labelledby="ob-done">
+    <section className="ob-screen ob-screen--done ob-fade" aria-labelledby="ob-done">
       {dev && <p className="ob-dev">DEV MODE: not emailed</p>}
       <p className="eyebrow">
         <span className="eyebrow__num">✓</span>
@@ -264,7 +264,7 @@ function Success({ refCode, dev, firstName, draft }: { refCode: string; dev: boo
           <span>We print your card. Printing takes 2 days after you approve the mockup.</span>
         </li>
       </ol>
-      <p className="ob-store">We don't keep your details or files on our server: they go straight to the Taply team by email.</p>
+      <p className="ob-done__note">Once you have dashboard access, edit your vCard details anytime, as often as you like.</p>
       <div className="ob-screen__cta">
         <CTA href={wa(`Hi Taply! I have a question about my card brief (${refCode}).`)} variant="violet" external srNote=" (opens WhatsApp in a new tab)">
           Questions? Message us on WhatsApp
