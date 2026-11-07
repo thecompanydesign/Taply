@@ -256,14 +256,25 @@ function attachedLine(fields: string[]): string {
   return names.join(', ')
 }
 
+// Neutral text only: the brand violet appears only in the symbol image, so
+// Gmail's dark mode can't shift it.
 const C = {
   ink: '#13131f',
   muted: '#6b6b7b',
-  violet: '#4c1bf1',
   font: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
 }
 
-function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, attachedFields: string[]) {
+/** The live site's address for the symbol image: SITE_URL, or this request's origin. */
+function siteOrigin(req: IncomingMessage): string {
+  const fromEnv = (process.env.SITE_URL ?? '').trim().replace(/\/+$/, '')
+  if (/^https?:\/\/[^/\s]+$/i.test(fromEnv)) return fromEnv
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim()
+  const host = first(req.headers['x-forwarded-host']) || first(req.headers.host) || ''
+  const proto = first(req.headers['x-forwarded-proto']) || (isDeployed() ? 'https' : 'http')
+  return /^[a-z0-9.-]+(:\d+)?$/i.test(host) && /^https?$/.test(proto) ? `${proto}://${host}` : ''
+}
+
+function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, attachedFields: string[], site: string) {
   const subject = `New profile details: ${b.name.trim()} (${ref})`
   const meta = `${ref} · ${nairobiTime(submitted)} Nairobi time`
   const attached = attachedLine(attachedFields)
@@ -295,7 +306,7 @@ function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, att
   const textHtml = (s: string) => esc(s).replace(/\n/g, '<br>')
   const valueHtml = (v: Value) =>
     v.href
-      ? `<a href="${esc(v.href)}" style="color:${C.violet};text-decoration:underline;word-break:break-all;">${esc(v.text)}</a>`
+      ? `<a href="${esc(v.href)}" style="color:${C.ink};text-decoration:underline;word-break:break-all;">${esc(v.text)}</a>`
       : textHtml(v.text)
   const rowsHtml = (rows: Row[]) =>
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">${rows
@@ -327,7 +338,11 @@ function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, att
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;">
 <tr><td align="center" style="padding:28px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;border-collapse:collapse;">
-<tr><td style="padding:0 0 24px;">${p(`font:700 15px/1 ${C.font};letter-spacing:-.01em;color:${C.violet};`, 'Taply')}</td></tr>
+<tr><td style="padding:0 0 24px;">${
+   site
+     ? `<img src="${esc(site)}/brand/taply-symbol.png" alt="Taply" width="36" height="28" style="display:block;border:0;outline:none;text-decoration:none;width:36px;height:28px;">`
+     : p(`font:700 15px/1 ${C.font};color:${C.ink};`, 'Taply')
+ }</td></tr>
 <tr><td style="padding:0 0 6px;">${p(`font:700 26px/1.25 ${C.font};color:${C.ink};`, 'New profile details')}</td></tr>
 <tr><td style="padding:0 0 32px;">${p(`font:14px/1.5 ${C.font};color:${C.muted};`, esc(meta))}</td></tr>
 ${all.map(sectionHtml).join('\n')}
@@ -465,7 +480,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     contentType: MIME[f.kind],
   }))
   const now = new Date()
-  const { subject, text, html } = buildEmail(brief, ref, now, consentTime(brief, now), parsed.files.map((f) => f.field))
+  const { subject, text, html } = buildEmail(brief, ref, now, consentTime(brief, now), parsed.files.map((f) => f.field), siteOrigin(req))
 
   const { NOTIFY_EMAIL, GMAIL_USER, GMAIL_APP_PASSWORD } = process.env
   if (!NOTIFY_EMAIL || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
