@@ -19,6 +19,40 @@
     <meta property="og:type" content="website" />
 
     <link rel="icon" type="image/png" href="/brand/taply-symbol.png" />
+
+    <!--
+      Runs before the first paint. Never reopen the page halfway down, and on
+      the home page lock scrolling and hold the hero from the very first frame
+      so nothing shows before the intro. `boot` keeps the canvas Warm Paper
+      until the app has rendered (the root background is Carbon for the
+      footer). The intro takes these classes over when it mounts; a failsafe
+      gives the page back if it never does.
+    -->
+    <style>
+      html.boot {
+        background: #f4f2ea;
+      }
+    </style>
+    <script>
+      ;(function () {
+        var d = document.documentElement
+        d.classList.add('boot')
+        try {
+          history.scrollRestoration = 'manual'
+        } catch (e) {}
+        try {
+          var home = !/^\/onboard\/?$/.test(location.pathname)
+          var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          var off = new URLSearchParams(location.search).get('intro') === '0'
+          if (home && !reduced && !off) {
+            d.classList.add('intro-lock', 'intro-playing')
+            setTimeout(function () {
+              if (!d.classList.contains('intro-mounted')) d.classList.remove('intro-lock', 'intro-playing', 'boot')
+            }, 6000)
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

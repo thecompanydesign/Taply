@@ -10,30 +10,22 @@ import type { RefObject } from 'react'
  * the site is simply the hero.
  */
 
-const PLAYED_KEY = 'taply-intro-played'
 const PAGE_SELECTOR = '.skip-link, .nav-wrap, main, footer'
 
+/**
+ * The intro plays on every load of the home page: every refresh, return visit
+ * and deep link (#faq etc.). Nothing is remembered between loads. It doesn't
+ * play on the onboarding form, with reduced motion, or with ?intro=0 (a test
+ * switch). The same rule runs inline in index.html before the first paint.
+ */
 function decide(): boolean {
   if (typeof window === 'undefined') return false
-  try {
-    // Note: runs before main.tsx adds `.js` (imports evaluate first); JS is
-    // running by definition here.
-    // The private onboarding form (/onboard) never shows the intro.
-    if (window.location.pathname.startsWith('/onboard')) return false
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
-    const param = new URLSearchParams(window.location.search).get('intro')
-    if (param === '0') return false
-    if (param !== '1') {
-      // Deep links go straight to their section; repeat visits straight to the hero.
-      if (window.location.hash) return false
-      if (window.sessionStorage.getItem(PLAYED_KEY)) return false
-    }
-    window.sessionStorage.setItem(PLAYED_KEY, '1')
-    return true
-  } catch {
-    // Storage blocked: we can't promise "once per session", so don't play.
-    return false
-  }
+  // Note: runs before main.tsx adds `.js` (imports evaluate first); JS is
+  // running by definition here.
+  if (window.location.pathname.startsWith('/onboard')) return false
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+  if (new URLSearchParams(window.location.search).get('intro') === '0') return false
+  return true
 }
 
 export const INTRO_SHOULD_PLAY = decide()
@@ -45,9 +37,17 @@ export function setPageInert(on: boolean) {
   })
 }
 
-/** Releases everything the intro holds: scroll lock, inert page, paused hero. */
+const toTop = () => window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+
+/**
+ * Releases everything the intro holds: scroll lock, inert page, paused hero.
+ * The page is shown from the top, and a #hash from the URL is dropped
+ * (replaceState: no jump, no history entry) rather than scrolled to.
+ */
 export function releasePage() {
-  document.documentElement.classList.remove('intro-playing', 'intro-lock', 'intro-flying', 'intro-gutter')
+  toTop()
+  if (window.location.hash) history.replaceState(history.state, '', window.location.pathname + window.location.search)
+  document.documentElement.classList.remove('intro-playing', 'intro-lock', 'intro-flying', 'intro-gutter', 'boot')
   setPageInert(false)
 }
 
@@ -62,7 +62,10 @@ function scrollbarWidth(): number {
 }
 
 if (INTRO_SHOULD_PLAY) {
-  window.scrollTo(0, 0)
+  toTop()
+  // A #hash makes the browser scroll to it as the page loads: undo that
+  // behind the overlay, so the intro always ends with the page at the top.
+  window.addEventListener('load', () => document.documentElement.classList.contains('intro-lock') && toTop(), { once: true })
   // Reserve the scrollbar's space during the lock only where scrollbars take
   // space, so releasing the lock never shifts the layout.
   if (scrollbarWidth() > 0) document.documentElement.classList.add('intro-gutter')

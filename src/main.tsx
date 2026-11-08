@@ -1,4 +1,5 @@
-import { lazy, StrictMode, Suspense } from 'react'
+import { lazy, StrictMode, Suspense, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 // Manrope (variable, 400–800) and DM Mono are self-hosted via Fontsource so the
@@ -9,6 +10,14 @@ import '@fontsource/dm-mono/500.css'
 
 import './styles.css'
 import App from './App'
+
+// Never reopen the page halfway down (index.html sets this first too).
+try {
+  history.scrollRestoration = 'manual'
+} catch {
+  // not supported: nothing to do
+}
+window.scrollTo(0, 0)
 
 // Only hide reveal elements once we know JavaScript is running, so content is
 // never permanently hidden if the script fails.
@@ -30,6 +39,22 @@ if (isOnboarding) {
   document.title = 'Taply: your card details'
 }
 
+if (!isOnboarding) {
+  // Back/forward cache: a restored home page reloads, so the intro plays again
+  // (with fresh sound setup) instead of reappearing mid-page.
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) window.location.reload()
+  })
+}
+
+/** After the home page's first render, the canvas goes back to Carbon (index.html `boot`). */
+function Booted({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    if (!document.documentElement.classList.contains('intro-lock')) document.documentElement.classList.remove('boot')
+  }, [])
+  return children
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {isOnboarding ? (
@@ -37,7 +62,9 @@ createRoot(document.getElementById('root')!).render(
         <OnboardingPage />
       </Suspense>
     ) : (
-      <App />
+      <Booted>
+        <App />
+      </Booted>
     )}
   </StrictMode>,
 )
