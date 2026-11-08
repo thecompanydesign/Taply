@@ -57,7 +57,7 @@ export function Footer() {
         <div className="footer__bottom">
           <p>© 2026 Taply. All rights reserved.</p>
           <p className="footer__credit">
-            Website built &amp; designed by{' '}
+            Website designed &amp; built by{' '}
             <a href="https://the-company-design-website.vercel.app/?utm_source=luxecard&utm_medium=footer" target="_blank" rel="noopener noreferrer">
               thecompany.design
             </a>

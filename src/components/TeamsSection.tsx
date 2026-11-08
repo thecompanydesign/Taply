@@ -8,146 +8,281 @@ const POINTS = [
   { title: 'One point of contact', text: 'We handle design, printing and delivery, and you talk to one team on WhatsApp.' },
 ]
 
-const CARDS = 4
-const FRONT = CARDS - 1
-const STAGGER = 110 // ms between cards fanning out
-const ENTRANCE = 900 // ms per card
-const SHUFFLE_EVERY = 4500 // ms between deals
-const DEAL = 900 // ms for one deal
-const TAP_SPREAD = 1200 // ms the fan stays wide after a tap
+const N = 7 // cards on the ring
+const STEP = 360 / N
+const SPEED = 360 / 28000 // deg per ms: one turn every 28 s
+const HOVER_SPEED = 0.3 // share of SPEED while a mouse is over the ring
+const TILT = -8 // deg: the ring leans back, so we look down on it a little
+const TILT_SCROLL = 3 // deg of extra tilt as the section scrolls past
+const DRAG = 0.35 // deg per px dragged
+const RESUME = 2000 // ms after release before auto-rotation returns
+const MOMENT = 1400 // ms: the front card's flip + ripple
+const ENTRY_STAGGER = 90
+const ENTRY_CARD = 900
+const ENTRY_SPIN = ENTRY_STAGGER * (N - 1) + 1100
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
+const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
+/** Soft overshoot (back-out). */
+const backOut = (t: number) => {
+  const c = 1.2
+  return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2)
+}
+/** Angle in (-180, 180]. */
+const wrap = (a: number) => ((((a + 180) % 360) + 360) % 360) - 180
 
 /**
- * The fanned card stack. Each card sits in a slot (0 = back, 3 = front); the
- * slot sets its fan position through CSS variables, so moving a card is just
- * changing its slot. Every few seconds the front card is dealt to the back.
- * Only transform and opacity animate; everything pauses off screen, while
- * the stack is hovered or touched, and with reduced motion.
+ * A ring of seven identical cards in 3D. One rAF loop drives everything:
+ * the entrance, the slow spin, dragging with inertia and a snap, the
+ * scroll-linked tilt, and per-card depth (scale on the front card, a dark
+ * shade on the others). Only transform and opacity change; the loop stops
+ * off screen and while the tab is hidden. Reduced motion: a still ring.
  */
-function TeamStack() {
+function OrbitRing() {
   const wrapRef = useRef<HTMLDivElement>(null)
-  const tiltRef = useRef<HTMLDivElement>(null)
-  const [inView, setInView] = useState(false)
-  const [entered, setEntered] = useState(false) // the fan-out has started
-  const [live, setLive] = useState(false) // fan-out done: idle float + shuffle
-  const [slots, setSlots] = useState(() => Array.from({ length: CARDS }, (_, i) => i))
-  const slotsRef = useRef(slots)
-  slotsRef.current = slots
-  const [dealing, setDealing] = useState<number | null>(null)
-  const [sheen, setSheen] = useState<{ card: number; n: number } | null>(null) // sweep on the card that just came to the front
-  const [spread, setSpread] = useState(false)
-  const held = useRef(false) // hovered or touched: no shuffles
-  const spreadTimer = useRef(0)
+  const ringRef = useRef<HTMLDivElement>(null)
+  const slotRefs = useRef<(HTMLDivElement | null)[]>([])
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [entered, setEntered] = useState(false)
 
-  // On screen or not (pauses the loops), and the one-time entrance.
+  // Mutable animation state (no re-renders while it runs).
+  const st = useRef({
+    rot: 0,
+    vel: 0, // deg/ms, after a drag
+    speed: 1, // share of SPEED, eased toward its target
+    dragging: false,
+    hover: false,
+    startX: 0,
+    startRot: 0,
+    lastX: 0,
+    lastT: 0,
+    resumeAt: 0,
+    snapTo: null as number | null,
+    entryStart: 0, // 0 = no entrance running
+    didEnter: false, // the entrance plays once
+    momentCard: -1,
+    shade: [] as number[],
+    scale: [] as number[],
+  })
+
   useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    if (reducedMotion() || !('IntersectionObserver' in window)) {
+    const root = wrapRef.current
+    const ring = ringRef.current
+    if (!root || !ring) return
+    const s = st.current
+    const reduced = reducedMotion()
+
+    const paint = (tilt: number) => {
+      ring.style.transform = `rotateX(${tilt.toFixed(2)}deg) rotateY(${s.rot.toFixed(2)}deg)`
+      for (let i = 0; i < N; i++) {
+        const facing = Math.cos((wrap(i * STEP + s.rot) * Math.PI) / 180) // 1 = facing us
+        const shade = Number((((1 - facing) / 2) * 0.5).toFixed(3))
+        const scale = Number((1 + 0.08 * Math.pow(Math.max(0, facing), 8)).toFixed(3))
+        if (s.shade[i] !== shade) {
+          slotRefs.current[i]?.style.setProperty('--shade', String(shade))
+          s.shade[i] = shade
+        }
+        if (s.scale[i] !== scale) {
+          const card = cardRefs.current[i]
+          if (card) card.style.transform = `scale(${scale})`
+          s.scale[i] = scale
+        }
+      }
+    }
+
+    if (reduced) {
+      s.rot = 0
+      paint(TILT)
       setEntered(true)
-      setLive(true)
       return
     }
-    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { rootMargin: '0px 0px -15% 0px' })
-    io.observe(el)
-    return () => io.disconnect()
+
+    let raf = 0
+    let last = 0
+    let inView = false
+    const timers = new Set<number>()
+
+    const moment = (i: number) => {
+      const card = cardRefs.current[i]
+      if (!card || card.classList.contains('is-moment')) return
+      card.classList.add('is-moment')
+      const t = window.setTimeout(() => {
+        card.classList.remove('is-moment')
+        timers.delete(t)
+      }, MOMENT)
+      timers.add(t)
+    }
+
+    const frame = (now: number) => {
+      raf = 0
+      const dt = last ? Math.min(64, now - last) : 16
+      last = now
+
+      // Reads first: how far the section has scrolled past the middle of the screen.
+      const r = root.getBoundingClientRect()
+      const off = clamp((r.top + r.height / 2 - innerHeight / 2) / innerHeight, -1, 1)
+      const tilt = TILT + off * TILT_SCROLL
+
+      if (s.entryStart) {
+        // Entrance: one pile, then each card unfurls to its place while the ring turns once.
+        const t = now - s.entryStart
+        for (let i = 0; i < N; i++) {
+          const p = backOut(clamp((t - i * ENTRY_STAGGER) / ENTRY_CARD, 0, 1))
+          const slot = slotRefs.current[i]
+          if (slot) slot.style.transform = `rotateY(${(i * STEP * p).toFixed(2)}deg) translateZ(calc(var(--radius) * ${p.toFixed(3)}))`
+        }
+        s.rot = -360 * (1 - easeOut(clamp(t / ENTRY_SPIN, 0, 1)))
+        if (t >= Math.max(ENTRY_SPIN, ENTRY_STAGGER * (N - 1) + ENTRY_CARD)) {
+          s.entryStart = 0
+          s.rot = 0
+          slotRefs.current.forEach((el) => el?.style.removeProperty('transform'))
+        }
+      } else if (s.dragging) {
+        // The pointer sets the angle directly.
+      } else if (Math.abs(s.vel) > 0.004) {
+        // Inertia after a fling.
+        s.rot += s.vel * dt
+        s.vel *= Math.exp(-dt / 320)
+        if (Math.abs(s.vel) <= 0.004) s.snapTo = Math.round(s.rot / STEP) * STEP
+      } else if (s.snapTo !== null && now < s.resumeAt) {
+        // Soft snap to the nearest card.
+        s.rot += (s.snapTo - s.rot) * (1 - Math.exp(-dt / 140))
+      } else {
+        s.snapTo = null
+        const target = now < s.resumeAt ? 0 : s.hover ? HOVER_SPEED : 1
+        s.speed += (target - s.speed) * (1 - Math.exp(-dt / 500))
+        s.rot += SPEED * s.speed * dt
+      }
+      if (Math.abs(s.rot) > 3600) s.rot = wrap(s.rot)
+
+      // The card that reaches the front plays its moment (not while it's being dragged).
+      if (!s.entryStart && !s.dragging) {
+        const front = Math.round(-s.rot / STEP)
+        const i = ((front % N) + N) % N
+        if (Math.abs(wrap(i * STEP + s.rot)) < 4 && s.momentCard !== i) {
+          s.momentCard = i
+          moment(i)
+        } else if (Math.abs(wrap(i * STEP + s.rot)) > STEP / 2) {
+          s.momentCard = -1
+        }
+      }
+
+      paint(tilt)
+      if (inView && !document.hidden) raf = requestAnimationFrame(frame)
+    }
+
+    const start = () => {
+      if (!raf && inView && !document.hidden) {
+        last = 0
+        raf = requestAnimationFrame(frame)
+      }
+    }
+    const stop = () => {
+      cancelAnimationFrame(raf)
+      raf = 0
+    }
+
+    const io = new IntersectionObserver(
+      ([e]) => {
+        inView = e.isIntersecting
+        if (inView && !s.didEnter) {
+          s.didEnter = true
+          setEntered(true)
+          s.entryStart = performance.now()
+        }
+        if (inView) start()
+        else stop()
+      },
+      { rootMargin: '0px 0px -10% 0px' },
+    )
+    io.observe(root)
+    const onVis = () => (document.hidden ? stop() : start())
+    document.addEventListener('visibilitychange', onVis)
+    paint(TILT)
+
+    return () => {
+      io.disconnect()
+      document.removeEventListener('visibilitychange', onVis)
+      stop()
+      timers.forEach((t) => window.clearTimeout(t))
+    }
   }, [])
 
-  useEffect(() => {
-    if (inView && !entered) setEntered(true)
-  }, [inView, entered])
-
-  // Once the last card has landed, the stack goes live (idle float, pulse, deals).
-  useEffect(() => {
-    if (!entered || live) return
-    const t = window.setTimeout(() => setLive(true), STAGGER * FRONT + ENTRANCE + 60)
-    return () => window.clearTimeout(t)
-  }, [entered, live])
-
-  // The deal: front card to the back, the others forward one place.
-  useEffect(() => {
-    if (!live || !inView || reducedMotion()) return
-    let wait = 0
-    let finish = 0
-    const deal = () => {
-      if (held.current || document.hidden) {
-        wait = window.setTimeout(deal, SHUFFLE_EVERY)
-        return
-      }
-      const cur = slotsRef.current
-      const next = cur.map((s) => (s === FRONT ? 0 : s + 1))
-      setSheen(null)
-      setDealing(cur.indexOf(FRONT))
-      setSlots(next)
-      finish = window.setTimeout(() => {
-        setDealing(null)
-        setSheen((prev) => ({ card: next.indexOf(FRONT), n: (prev?.n ?? 0) + 1 }))
-        wait = window.setTimeout(deal, SHUFFLE_EVERY)
-      }, DEAL)
-    }
-    wait = window.setTimeout(deal, SHUFFLE_EVERY)
-    return () => {
-      window.clearTimeout(wait)
-      window.clearTimeout(finish)
-    }
-  }, [live, inView])
-
-  useEffect(() => () => window.clearTimeout(spreadTimer.current), [])
-
-  // Desktop: tilt toward the pointer (CSS eases it). Touch: a tap spreads the fan for a moment.
-  const tilt = (x: number, y: number) => {
-    tiltRef.current?.style.setProperty('--tilt-x', `${(x * 6).toFixed(2)}deg`)
-    tiltRef.current?.style.setProperty('--tilt-y', `${(y * -6).toFixed(2)}deg`)
+  // Drag / swipe to spin. touch-action: pan-y keeps vertical scrolling native.
+  const onDown = (e: PointerEvent<HTMLDivElement>) => {
+    const s = st.current
+    if (reducedMotion() || s.entryStart || (e.pointerType === 'mouse' && e.button !== 0)) return
+    s.dragging = true
+    s.vel = 0
+    s.snapTo = null
+    s.startX = s.lastX = e.clientX
+    s.startRot = s.rot
+    s.lastT = performance.now()
+    e.currentTarget.setPointerCapture(e.pointerId)
   }
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse' || reducedMotion()) return
-    const r = e.currentTarget.getBoundingClientRect()
-    tilt(((e.clientX - r.left) / r.width - 0.5) * 2, ((e.clientY - r.top) / r.height - 0.5) * 2)
+    const s = st.current
+    if (!s.dragging) return
+    const now = performance.now()
+    const dt = Math.max(1, now - s.lastT)
+    s.vel = clamp(((e.clientX - s.lastX) * DRAG) / dt, -1.2, 1.2) * 0.6 + s.vel * 0.4
+    s.lastX = e.clientX
+    s.lastT = now
+    s.rot = s.startRot + (e.clientX - s.startX) * DRAG
   }
-  const onEnter = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === 'mouse') held.current = true
-  }
-  const onLeave = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse') return
-    held.current = false
-    tilt(0, 0)
-  }
-  const onTap = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === 'mouse') return
-    held.current = true
-    setSpread(true)
-    window.clearTimeout(spreadTimer.current)
-    spreadTimer.current = window.setTimeout(() => {
-      setSpread(false)
-      held.current = false
-    }, TAP_SPREAD)
+  const onUp = () => {
+    const s = st.current
+    if (!s.dragging) return
+    s.dragging = false
+    // A tap, or a vertical scroll the browser took over: leave the ring spinning.
+    if (Math.abs(s.lastX - s.startX) < 4) {
+      s.rot = s.startRot + (s.lastX - s.startX) * DRAG
+      s.vel = 0
+      return
+    }
+    if (performance.now() - s.lastT > 80) s.vel = 0 // held still before letting go
+    if (Math.abs(s.vel) <= 0.004) s.snapTo = Math.round(s.rot / STEP) * STEP
+    s.resumeAt = performance.now() + RESUME
+    s.speed = 0
   }
 
-  const cls = ['teams__visual', entered && 'is-in', live && 'is-live', inView && 'is-playing'].filter(Boolean).join(' ')
   return (
-    <div className={cls} ref={wrapRef} aria-hidden="true">
+    <div className={`teams__visual${entered ? ' is-in' : ''}`} ref={wrapRef} aria-hidden="true">
       <span className="teams__circle" data-parallax="0.06" />
-      <span className="teams__pulse">
-        <i />
-        <i />
-      </span>
-      <div className="teams__tilt" ref={tiltRef} onPointerMove={onMove} onPointerEnter={onEnter} onPointerLeave={onLeave} onPointerUp={onTap}>
-        <div className={`teams__stack${spread ? ' is-spread' : ''}`}>
-          {slots.map((slot, i) => (
-            <div
-              className={`teams__card${dealing === i ? ' is-dealing' : ''}`}
-              key={i}
-              data-slot={slot}
-              style={{ '--n': i, '--slot': slot, '--float-d': `${-i * 1.7}s`, '--float-t': `${5 + i * 0.6}s` } as CSSProperties}
-            >
-              <div className="teams__float">
-                <div className="pcard pcard--light">
-                  <div className="pcard__face">
-                    <BrandMark variant="symbol" className="teams__symbol" />
-                    <span className="pcard__gloss">{sheen?.card === i && <span className="teams__sheen" key={sheen.n} />}</span>
+      <div
+        className="orbit"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onPointerEnter={(e) => e.pointerType === 'mouse' && (st.current.hover = true)}
+        onPointerLeave={(e) => e.pointerType === 'mouse' && (st.current.hover = false)}
+      >
+        <div className="orbit__ring" ref={ringRef}>
+          {Array.from({ length: N }, (_, i) => (
+            <div className="orbit__slot" key={i} ref={(el) => void (slotRefs.current[i] = el)} style={{ '--i': i } as CSSProperties}>
+              <div className="orbit__card" ref={(el) => void (cardRefs.current[i] = el)}>
+                <div className="orbit__flip">
+                  <div className="pcard pcard--light orbit__face">
+                    <div className="pcard__face">
+                      <BrandMark variant="symbol" className="orbit__symbol" />
+                      <span className="pcard__gloss" />
+                      <span className="orbit__shade" />
+                    </div>
+                  </div>
+                  <div className="pcard pcard--dark orbit__face orbit__face--back">
+                    <div className="pcard__face">
+                      <img className="orbit__qr" src="/brand/taply-qr.svg" alt="" width="264" height="264" decoding="async" draggable={false} />
+                      <span className="pcard__gloss" />
+                      <span className="orbit__shade" />
+                    </div>
                   </div>
                 </div>
+                <span className="orbit__ripple">
+                  <i />
+                  <i />
+                </span>
               </div>
             </div>
           ))}
@@ -185,7 +320,7 @@ export function TeamsSection() {
           </div>
         </div>
 
-        <TeamStack />
+        <OrbitRing />
       </div>
     </section>
   )

@@ -19,6 +19,15 @@
      container) and any section that pads itself from the page edge. */
   --gutter: clamp(20px, 4vw, 64px);
   --max: 1280px;
+
+  /* Section headings (home page). One leading for every section title: 1.1
+     clears descenders, plus 0.04 so a second line always has a visible gap.
+     --title-trim takes the extra leading back off the top and bottom, so a
+     single-line title keeps its height and the gaps below stay exact. */
+  --title-leading: 1.14;
+  --title-trim: calc((1 - var(--title-leading)) * 0.5em);
+  --eyebrow-gap: 28px; /* eyebrow label to heading */
+  --title-gap: 28px; /* heading to the text below it */
 }
 
 *,
@@ -130,7 +139,7 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 0 28px;
+  margin: 0 0 var(--eyebrow-gap);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
@@ -189,6 +198,19 @@ a {
   font-weight: 500;
   line-height: 0.99;
   letter-spacing: -0.055em;
+}
+/* Every home-page section title shares the same leading and gaps (the
+   onboarding page uses .h2 too, so this is scoped to the home sections). */
+.section .h2,
+.real .h2,
+.final .final__title {
+  margin-block: var(--title-trim);
+  line-height: var(--title-leading);
+}
+.section .h2 + .lede,
+.real .h2 + .lede,
+.final .final__title + .lede {
+  margin-top: var(--title-gap);
 }
 
 .lede {
@@ -1486,7 +1508,6 @@ a {
   order: -1;
 }
 .profile .lede {
-  margin-top: 28px;
   color: rgba(255, 255, 255, 0.84);
 }
 .profile__list {
@@ -1503,8 +1524,9 @@ a {
   border-top: 1px solid rgba(255, 255, 255, 0.22);
   font-weight: 600;
 }
-.profile__list li:last-child {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+.profile__list li:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 .profile__list svg {
   color: var(--signal-lime);
@@ -1663,9 +1685,6 @@ a {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: center;
   gap: 80px;
-}
-.yourcard .lede {
-  margin-top: 28px;
 }
 
 /* The stage keeps a fixed ratio, so nothing moves the layout. --cw is the
@@ -2119,7 +2138,6 @@ a {
 }
 .panel__title {
   max-width: 10em;
-  margin-bottom: 24px;
   font-size: clamp(40px, 4.8vw, 66px);
 }
 .price {
@@ -2246,12 +2264,7 @@ a {
   align-items: center;
   gap: 80px;
 }
-/* A little more room between the two lines, so "y" clears the line below. */
-.teams__title {
-  line-height: 1.1;
-}
 .teams .lede {
-  margin-top: 28px;
   color: rgba(244, 242, 234, 0.78);
 }
 .teams__points {
@@ -2300,16 +2313,30 @@ a {
   font-size: 14px;
   color: rgba(244, 242, 234, 0.6);
 }
+/* Desktop: the button is exactly as wide as the one-line note under it. */
+@media (min-width: 1024px) {
+  .teams__action {
+    width: fit-content;
+    max-width: 100%;
+  }
+  .teams__note {
+    white-space: nowrap;
+  }
+  .teams__action .cta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 
-/* The fanned card stack. Each card's slot (0 = back, 3 = front) picks its
-   fan position from the --x/--y/--r variables below; TeamsSection.tsx moves
-   cards between slots. Only transform and opacity animate. */
+/* The orbit ring: seven identical cards on a 3D carousel inside the violet
+   circle. TeamsSection.tsx turns the ring (inline transform) and sets each
+   card's depth (--shade, scale). Sizes follow the visual's width (cqw), so
+   the ring always fits. Only transform and opacity animate. */
 .teams__visual {
   position: relative;
-  display: grid;
-  place-items: center;
   min-height: 520px;
   overflow: hidden;
+  container-type: inline-size;
 }
 .teams__circle {
   position: absolute;
@@ -2322,221 +2349,142 @@ a {
   transform: translate(-50%, -50%);
   transition: scale 1100ms var(--ease);
 }
-/* NFC pulse: two thin lime rings expanding from the centre, behind the cards. */
-.teams__pulse {
+.orbit {
+  --card-w: min(31cqw, 170px);
+  --radius: calc(var(--card-w) * 1.25);
+  position: absolute;
+  inset: 0;
+  perspective: 1100px;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: grab;
+}
+.orbit:active {
+  cursor: grabbing;
+}
+.orbit__ring {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(-8deg);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.orbit__slot {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: min(84%, 460px);
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+  width: var(--card-w);
+  height: calc(var(--card-w) / 1.586);
+  margin: calc(var(--card-w) / -3.172) 0 0 calc(var(--card-w) / -2);
+  transform: rotateY(calc(var(--i) * 360deg / 7)) translateZ(var(--radius));
+  transform-style: preserve-3d;
 }
-.teams__pulse i {
+.orbit__card,
+.orbit__flip {
   position: absolute;
   inset: 0;
-  border: 1.5px solid var(--signal-lime);
-  border-radius: 50%;
-  opacity: 0;
-  animation: teams-pulse 3s cubic-bezier(0.2, 0.8, 0.2, 1) infinite paused;
+  transform-style: preserve-3d;
 }
-.teams__pulse i:nth-child(2) {
-  animation-delay: 450ms;
-}
-.teams__tilt {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  perspective: 1000px;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  cursor: pointer;
-}
-.teams__stack {
-  --x0: -9%;
-  --y0: 4%;
-  --r0: -10deg;
-  --x1: -3%;
-  --y1: 1%;
-  --r1: -3.5deg;
-  --x2: 3%;
-  --y2: 1%;
-  --r2: 3.5deg;
-  --x3: 9%;
-  --y3: 4%;
-  --r3: 10deg;
-  position: relative;
-  width: min(64%, 360px);
-  aspect-ratio: 1.586;
-  transform: rotateX(var(--tilt-y, 0deg)) rotateY(var(--tilt-x, 0deg));
-  transition: transform 600ms var(--ease);
-}
-.teams__stack.is-spread {
-  --x0: -13%;
-  --r0: -14deg;
-  --x1: -4.5%;
-  --r1: -5deg;
-  --x2: 4.5%;
-  --r2: 5deg;
-  --x3: 13%;
-  --r3: 14deg;
-}
-@media (hover: hover) {
-  .teams__tilt:hover .teams__stack {
-    --x0: -13%;
-    --r0: -14deg;
-    --x1: -4.5%;
-    --r1: -5deg;
-    --x2: 4.5%;
-    --r2: 5deg;
-    --x3: 13%;
-    --r3: 14deg;
-  }
-}
-.teams__card {
+.orbit__face {
   position: absolute;
   inset: 0;
-  transform-origin: 50% 100%;
-  transform: translate(var(--cx), var(--cy)) rotate(var(--cr));
-  transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
-.teams__card[data-slot='0'] {
-  --cx: var(--x0);
-  --cy: var(--y0);
-  --cr: var(--r0);
-  z-index: 1;
+.orbit__face--back {
+  transform: rotateY(180deg);
 }
-.teams__card[data-slot='1'] {
-  --cx: var(--x1);
-  --cy: var(--y1);
-  --cr: var(--r1);
-  z-index: 2;
-}
-.teams__card[data-slot='2'] {
-  --cx: var(--x2);
-  --cy: var(--y2);
-  --cr: var(--r2);
-  z-index: 3;
-}
-.teams__card[data-slot='3'] {
-  --cx: var(--x3);
-  --cy: var(--y3);
-  --cr: var(--r3);
-  z-index: 4;
-}
-/* The deal: the front card lifts, slips behind the stack and drops to the back. */
-.teams__card.is-dealing {
-  transition: none;
-  animation: teams-deal 900ms cubic-bezier(0.45, 0, 0.2, 1) both;
-}
-/* Idle: each card breathes on its own loop. */
-.teams__float {
-  animation: teams-float var(--float-t, 6s) ease-in-out var(--float-d, 0s) infinite alternate paused;
-}
-.teams__visual.is-live.is-playing .teams__float,
-.teams__visual.is-live.is-playing .teams__pulse i {
-  animation-play-state: running;
-}
-.teams__symbol {
+.orbit__symbol {
   position: absolute;
   left: 50%;
   top: 50%;
   width: 22cqw;
   height: auto;
   translate: -50% -50%;
+  -webkit-user-drag: none;
 }
-/* The sheen after each deal replaces the generic card hover sweep here. */
+.orbit__qr {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40cqw;
+  height: auto;
+  translate: -50% -50%;
+  -webkit-user-drag: none;
+}
+/* Depth: cards turned away get a Carbon shade (opacity only). */
+.orbit__shade {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--carbon);
+  opacity: var(--shade, 0);
+  pointer-events: none;
+}
 .teams .pcard__gloss::after {
   content: none;
 }
-.teams__sheen {
-  position: absolute;
-  top: -25%;
-  bottom: -25%;
-  left: -50%;
-  width: 45%;
-  /* On a paper card a white band alone is invisible: faint violet edges carry it. */
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    rgba(76, 27, 241, 0.1) 30%,
-    rgba(255, 255, 255, 0.9) 50%,
-    rgba(76, 27, 241, 0.1) 70%,
-    transparent 100%
-  );
-  transform: translateX(0) skewX(-14deg);
-  animation: teams-sheen 1400ms cubic-bezier(0.45, 0, 0.35, 1) both;
+/* The front card's moment: a half-flip to the QR side and back, with a lime
+   NFC ripple, as if it had just been tapped. */
+.orbit__card.is-moment .orbit__flip {
+  animation: orbit-flip 1400ms cubic-bezier(0.45, 0, 0.25, 1);
 }
-/* Entrance: one tidy pile in the centre, then the cards fan out one by one
-   with a soft overshoot, while the circle grows in behind them. */
-@media (prefers-reduced-motion: no-preference) {
-  .js .teams__visual:not(.is-in) .teams__card {
+.orbit__ripple {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.orbit__ripple i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  margin: -50% 0 0 -50%;
+  border: 1.5px solid var(--signal-lime);
+  border-radius: 50%;
+  opacity: 0;
+}
+.orbit__card.is-moment .orbit__ripple i {
+  animation: orbit-ripple 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.orbit__card.is-moment .orbit__ripple i:nth-child(2) {
+  animation-delay: 220ms;
+}
+@keyframes orbit-flip {
+  0% {
+    transform: rotateY(0deg);
+  }
+  32%,
+  62% {
+    transform: rotateY(180deg);
+  }
+  100% {
+    transform: rotateY(0deg);
+  }
+}
+@keyframes orbit-ripple {
+  0% {
     opacity: 0;
-    transform: scale(0.88);
+    transform: scale(0.5);
+  }
+  15% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+/* Before the entrance the cards wait as one pile and the circle is smaller. */
+@media (prefers-reduced-motion: no-preference) {
+  .js .teams__visual:not(.is-in) .orbit__slot {
+    transform: none;
   }
   .js .teams__visual:not(.is-in) .teams__circle {
     scale: 0.85;
-  }
-  .js .teams__visual.is-in:not(.is-live) .teams__card {
-    animation: teams-fan-in 900ms cubic-bezier(0.2, 1.3, 0.35, 1) both;
-    animation-delay: calc(var(--slot) * 110ms);
-  }
-}
-@keyframes teams-fan-in {
-  from {
-    opacity: 0;
-    transform: translate(0, 0) rotate(0deg) scale(0.88);
-  }
-  to {
-    opacity: 1;
-    transform: translate(var(--cx), var(--cy)) rotate(var(--cr));
-  }
-}
-@keyframes teams-deal {
-  0% {
-    z-index: 5;
-    transform: translate(var(--x3), var(--y3)) rotate(var(--r3));
-  }
-  42% {
-    z-index: 5;
-    transform: translate(calc(var(--x3) * 0.4), -36%) rotate(calc(var(--r3) * 0.3)) scale(1.03);
-  }
-  56% {
-    z-index: 0;
-    transform: translate(calc(var(--x0) * 0.4), -34%) rotate(calc(var(--r0) * 0.3)) scale(1.02);
-  }
-  100% {
-    z-index: 0;
-    transform: translate(var(--x0), var(--y0)) rotate(var(--r0));
-  }
-}
-@keyframes teams-float {
-  from {
-    transform: translateY(-6px) rotate(-0.6deg);
-  }
-  to {
-    transform: translateY(6px) rotate(0.6deg);
-  }
-}
-@keyframes teams-sheen {
-  to {
-    transform: translateX(520%) skewX(-14deg);
-  }
-}
-@keyframes teams-pulse {
-  0% {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  12% {
-    opacity: 0.35;
-  }
-  60%,
-  100% {
-    opacity: 0;
-    transform: scale(1.1);
   }
 }
 
@@ -2562,15 +2510,12 @@ a {
 .faq__head .h2 span {
   white-space: nowrap;
 }
-.faq__head .lede {
-  margin-top: 28px;
-}
 
 .acc {
   border-top: 1px solid var(--soft-stone);
 }
-.acc:last-child {
-  border-bottom: 1px solid var(--soft-stone);
+.acc:first-child {
+  border-top: 0;
 }
 .acc__trigger {
   display: flex;
@@ -2710,9 +2655,6 @@ a {
 .real__copy .h2 {
   font-size: clamp(42px, 4.9vw, 70px);
 }
-.real__copy .lede {
-  margin-top: 28px;
-}
 .usecases {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2782,14 +2724,9 @@ a {
   height: auto;
   margin-bottom: 40px;
 }
-.final .eyebrow {
-  margin-bottom: 0;
-}
 .final__title {
-  margin: 24px 0 36px;
   font-size: clamp(56px, 10.4vw, 160px);
   font-weight: 500;
-  line-height: 0.88;
   letter-spacing: -0.072em;
 }
 .final__line {
@@ -3016,7 +2953,7 @@ a {
 
   .how__head {
     grid-template-columns: 1fr;
-    gap: 24px;
+    gap: var(--title-gap);
   }
   .how__sub {
     justify-self: start;
@@ -3323,10 +3260,10 @@ a {
     margin-top: 32px;
   }
   .teams__visual {
-    min-height: 300px;
+    min-height: 320px;
   }
-  .teams__stack {
-    width: min(60%, 280px);
+  .orbit {
+    perspective: 800px;
   }
 
   .footer {
@@ -3393,7 +3330,6 @@ a {
   .js .pstage .phone__links li,
   .js .pstage .phone__save,
   .js .panel__card,
-  .js .teams__card,
   .js .final__title .w__in,
   .acc__inner p,
   [data-parallax] {
