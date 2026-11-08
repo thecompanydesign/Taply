@@ -2363,8 +2363,10 @@ a {
   transition: scale 1100ms var(--ease);
 }
 .orbit {
-  --card-w: min(31cqw, 170px);
-  --radius: calc(var(--card-w) * 1.25);
+  /* Four cards, 90 degrees apart: larger cards on a radius just wide enough
+     that neighbours never touch, so the ring fills the circle. */
+  --card-w: min(33cqw, 185px);
+  --radius: calc(var(--card-w) * 1.05);
   position: absolute;
   inset: 0;
   perspective: 1100px;
@@ -2391,7 +2393,7 @@ a {
   width: var(--card-w);
   height: calc(var(--card-w) / 1.586);
   margin: calc(var(--card-w) / -3.172) 0 0 calc(var(--card-w) / -2);
-  transform: rotateY(calc(var(--i) * 360deg / 7)) translateZ(var(--radius));
+  transform: rotateY(calc(var(--i) * 360deg / 4)) translateZ(var(--radius));
   transform-style: preserve-3d;
 }
 .orbit__card,

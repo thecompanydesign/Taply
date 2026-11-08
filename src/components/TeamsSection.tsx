@@ -8,9 +8,9 @@ const POINTS = [
   { title: 'One point of contact', text: 'We handle design, printing and delivery, and you talk to one team on WhatsApp.' },
 ]
 
-const N = 7 // cards on the ring
+const N = 4 // cards on the ring, 90 degrees apart
 const STEP = 360 / N
-const SPEED = 360 / 28000 // deg per ms: one turn every 28 s
+const SPEED = 360 / 20000 // deg per ms: one turn every 20 s
 const HOVER_SPEED = 0.3 // share of SPEED while a mouse is over the ring (orbit phase only)
 const TILT = -8 // deg: the ring leans back, so we look down on it a little
 const TILT_SCROLL = 3 // deg of extra tilt as the section scrolls past
@@ -19,22 +19,24 @@ const RESUME = 2000 // ms after release before the cycle continues
 const MOMENT = 1400 // ms: the front card's flip + ripple (orbit phase only)
 
 /** The loop, in ms: orbit, gather into a stack, hold, release back to the ring. */
-export const ORBIT_CYCLE = { orbit: 9000, gather: 1900, stack: 2400, release: 1800 } as const
-const GATHER_SLOW = 350 // the ring decelerates before the first card leaves
-const GATHER_STAGGER = 130
-const RELEASE_LIFT = 120 // the top card lifts first
-const RELEASE_STAGGER = 130
-const ENTRY_STAGGER = 90
-const ENTRY_FLIGHT = 900
-const ENTRY_SPIN = ENTRY_STAGGER * (N - 1) + 1100
+export const ORBIT_CYCLE = { orbit: 8000, gather: 2100, stack: 2200, release: 2100 } as const
+const GATHER_FIRST = 250 // the first card leaves while the ring is slowing down
+const GATHER_DECEL = 650 // the ring eases to a stop over this long
+const GATHER_STAGGER = 170
+const RELEASE_STAGGER = 190 // top card first
+const ENTRY_STAGGER = 110
+const ENTRY_FLIGHT = 1100
+const ENTRY_SPIN = ENTRY_STAGGER * (N - 1) + 1400
 const RETURN_MS = 450 // cards fly home when someone grabs the ring mid-cycle
+const STACK_CONTRACT = 0.8 // ring radius while the cards are piled
 
-// Each card's place in the stack, bottom (0) to top (6): offsets in card
+// Each card's place in the stack, bottom (0) to top (3): offsets in card
 // widths, a few degrees of turn, a little depth so they never intersect.
-const STACK_ROT = [-6, 6, -3, 3, -1.5, 1.5, 0]
-const STACK_X = [-0.1, 0.09, -0.065, 0.06, -0.035, 0.03, 0]
-const STACK_Y = [0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0]
-const STACK_Z = 0.03 // card widths between layers
+// The vertical steps keep every card's edge visible.
+const STACK_ROT = [-5, 5, -2, 2]
+const STACK_X = [-0.03, 0.03, -0.015, 0]
+const STACK_Y = [0.075, 0.05, 0.025, 0]
+const STACK_Z = 0.035 // card widths between layers
 const STACK_SCALE = 1.22
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -71,14 +73,18 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
     return sy(t)
   }
 }
-/** The site's easing, cubic-bezier(0.2, 0.8, 0.2, 1), plus a tiny settle as each card lands. */
-const siteEase = cubicBezier(0.2, 0.8, 0.2, 1)
-const land = (t: number) => siteEase(t) + 0.03 * Math.sin(Math.PI * clamp((t - 0.62) / 0.38, 0, 1))
+/** Card flights: a smooth ease-in-out with a long, soft landing. No overshoot or bounce. */
+const flightEase = cubicBezier(0.45, 0.05, 0.15, 1)
+/** Speed changes of the ring: smooth at both ends. */
+const smooth = (t: number) => {
+  const x = clamp(t, 0, 1)
+  return x * x * (3 - 2 * x)
+}
 
 type Phase = 'pile' | 'entry' | 'orbit' | 'gather' | 'stack' | 'release' | 'return'
 
 /**
- * A ring of seven identical cards in 3D that loops through four phases:
+ * A ring of four identical cards in 3D that loops through four phases:
  * orbit, gather (cards sweep in from the back and pile up), stack (a short
  * hold with a sheen and a tap ripple), release (cards fly back out).
  *
@@ -120,6 +126,12 @@ function OrbitRing() {
     pFrom: Array.from({ length: N }, () => 1),
     layer: Array.from({ length: N }, (_, i) => i), // stack layer per card (6 = top)
     momentCard: -1,
+    // While cards fly (entry, gather, release, return), each card's ring angle
+    // is followed continuously from where it was when the phase began, so it
+    // never wraps from +180 to -180 (a jump to the other side) mid-flight.
+    base: Array.from({ length: N }, () => 0),
+    rotBase: 0,
+    speedFrom: 1, // ring speed when the gather began
     shade: [] as number[],
     pose: [] as string[],
     didEnter: false,
@@ -149,11 +161,14 @@ function OrbitRing() {
     /** Places every card from its blend value p (0 ring .. 1 stack). */
     const paint = (tilt: number) => {
       ring.style.transform = `rotateX(${tilt.toFixed(2)}deg)`
-      const breathe = s.phase === 'stack' ? Math.sin(((s.clock - s.phaseAt) / 3000) * 2 * Math.PI) * 0.012 : 0
+      // One gentle rise and fall over the hold: zero at both ends, so the
+      // stack meets the gather and release without a step.
+      const breathe = s.phase === 'stack' ? -0.008 * Math.sin(Math.PI * clamp((s.clock - s.phaseAt) / ORBIT_CYCLE.stack, 0, 1)) : 0
+      const flying = s.phase !== 'orbit' && s.phase !== 'stack'
       for (let i = 0; i < N; i++) {
         const p = s.p[i]
         const k = s.layer[i]
-        const ringAngle = wrap(i * STEP + s.rot)
+        const ringAngle = flying ? s.base[i] + (s.rot - s.rotBase) : wrap(i * STEP + s.rot)
         const facing = Math.cos((ringAngle * Math.PI) / 180) // 1 = facing us
         // Ring part: angle swings to the front and the radius shrinks to 0 as p rises.
         const a = ringAngle * (1 - p)
@@ -166,7 +181,7 @@ function OrbitRing() {
         // Gathering cards arc toward the viewer, so they land on the pile from
         // the front; released cards arc up and over, clear of the cards
         // already back on the ring.
-        const out = s.phase === 'release' || s.phase === 'entry'
+        const out = s.phase === 'release' || s.phase === 'entry' || s.phase === 'return'
         const by = (STACK_Y[k] + breathe) * p - (out ? 0.42 : 0.2) * arc
         const bz = k * STACK_Z * p + (out ? 0.12 : 0.45) * arc
         // A card in flight keeps facing us and turns to its ring angle only
@@ -186,7 +201,7 @@ function OrbitRing() {
           s.pose[i] = pose
         }
         const shadeRing = ((1 - facing) / 2) * 0.5
-        const shade = Number((shadeRing + ((N - 1 - k) * 0.025 - shadeRing) * p).toFixed(3))
+        const shade = Number((shadeRing + ((N - 1 - k) * 0.04 - shadeRing) * p).toFixed(3))
         if (s.shade[i] !== shade) {
           slotRefs.current[i]?.style.setProperty('--shade', String(shade))
           s.shade[i] = shade
@@ -196,17 +211,25 @@ function OrbitRing() {
 
     if (reduced) {
       s.p.fill(0)
-      s.rot = 0
+      s.phase = 'orbit' // a still ring (no cycle)
+      s.rot = -30 // turned so all four cards show
       paint(TILT)
       setEntered(true)
       return
     }
 
+    /** Freezes each card's current ring angle as the start of a continuous flight. */
+    const anchor = () => {
+      for (let i = 0; i < N; i++) s.base[i] = wrap(i * STEP + s.rot)
+      s.rotBase = s.rot
+    }
     const go = (phase: Phase) => {
       s.phase = phase
       s.phaseAt = s.clock
       root.dataset.phase = phase
       s.pFrom = [...s.p]
+      if (phase !== 'orbit' && phase !== 'stack') anchor()
+      if (phase === 'gather') s.speedFrom = s.speed
       if (phase === 'gather') {
         // Back of the ring first; the card at the front arrives last, on top.
         const order = Array.from({ length: N }, (_, i) => i).sort(
@@ -247,7 +270,7 @@ function OrbitRing() {
           // One pile unfurls into the ring while the ring turns once.
           for (let i = 0; i < N; i++) {
             const rank = N - 1 - s.layer[i]
-            s.p[i] = 1 - land(clamp((t - rank * ENTRY_STAGGER) / ENTRY_FLIGHT, 0, 1))
+            s.p[i] = 1 - flightEase(clamp((t - rank * ENTRY_STAGGER) / ENTRY_FLIGHT, 0, 1))
           }
           s.rot = -360 * (1 - easeOutCubic(clamp(t / ENTRY_SPIN, 0, 1)))
           if (t >= Math.max(ENTRY_SPIN, ENTRY_STAGGER * (N - 1) + ENTRY_FLIGHT)) {
@@ -258,15 +281,16 @@ function OrbitRing() {
           break
         }
         case 'gather': {
-          // The ring slows, then the cards leave it from the back, one by one.
+          // The ring eases to a stop as the first card leaves; the cards then
+          // sweep in from the back, one by one, and land on the pile.
+          s.speed = s.speedFrom * (1 - smooth(t / GATHER_DECEL))
           s.rot += SPEED * s.speed * dt
-          s.speed = Math.max(0, 1 - t / GATHER_SLOW) // decelerate to a stop
-          const flight = ORBIT_CYCLE.gather - GATHER_SLOW - GATHER_STAGGER * (N - 1)
+          const flight = ORBIT_CYCLE.gather - GATHER_FIRST - GATHER_STAGGER * (N - 1)
           for (let i = 0; i < N; i++) {
-            const start = GATHER_SLOW + s.layer[i] * GATHER_STAGGER
-            s.p[i] = land(clamp((t - start) / flight, 0, 1))
+            const start = GATHER_FIRST + s.layer[i] * GATHER_STAGGER
+            s.p[i] = flightEase(clamp((t - start) / flight, 0, 1))
           }
-          s.contract = 1 - 0.25 * clamp(t / ORBIT_CYCLE.gather, 0, 1)
+          s.contract = 1 - (1 - STACK_CONTRACT) * smooth(t / ORBIT_CYCLE.gather)
           if (t >= ORBIT_CYCLE.gather) {
             s.p.fill(1)
             go('stack')
@@ -277,19 +301,20 @@ function OrbitRing() {
           if (t >= ORBIT_CYCLE.stack) go('release')
           break
         case 'release': {
-          // The top card lifts first; each card flies back out to its place
-          // on the ring, and the ring is turning again as the last one lands.
-          const flight = ORBIT_CYCLE.release - RELEASE_LIFT - RELEASE_STAGGER * (N - 1)
+          // The cards peel off from the top, each easing back to its place on
+          // the ring, while the ring's speed builds smoothly from zero to normal.
+          const flight = ORBIT_CYCLE.release - RELEASE_STAGGER * (N - 1)
           for (let i = 0; i < N; i++) {
-            const start = RELEASE_LIFT + (N - 1 - s.layer[i]) * RELEASE_STAGGER
-            s.p[i] = 1 - land(clamp((t - start) / flight, 0, 1))
+            const start = (N - 1 - s.layer[i]) * RELEASE_STAGGER
+            s.p[i] = 1 - flightEase(clamp((t - start) / flight, 0, 1))
           }
-          s.contract = 0.75 + 0.25 * clamp(t / ORBIT_CYCLE.release, 0, 1)
-          s.speed = clamp((t - ORBIT_CYCLE.release * 0.45) / (ORBIT_CYCLE.release * 0.55), 0, 1)
+          s.contract = STACK_CONTRACT + (1 - STACK_CONTRACT) * smooth(t / ORBIT_CYCLE.release)
+          s.speed = smooth(t / ORBIT_CYCLE.release)
           s.rot += SPEED * s.speed * dt
           if (t >= ORBIT_CYCLE.release) {
             s.p.fill(0)
             s.contract = 1
+            s.speed = 1
             go('orbit')
           }
           break
@@ -328,7 +353,7 @@ function OrbitRing() {
           const target = waiting ? 0 : s.hover ? HOVER_SPEED : 1
           s.speed += (target - s.speed) * (1 - Math.exp(-dt / 500))
           s.rot += SPEED * s.speed * dt
-          // After a drag, the orbit phase starts its 9 s afresh once the ring is moving again.
+          // After a drag, the orbit phase starts afresh once the ring is moving again.
           if (s.resumeAt >= 0 && !waiting) {
             s.resumeAt = -1
             s.phaseAt = s.clock
@@ -336,7 +361,7 @@ function OrbitRing() {
           if (s.clock - s.phaseAt >= ORBIT_CYCLE.orbit && s.resumeAt < 0) go('gather')
         }
       }
-      if (Math.abs(s.rot) > 3600) s.rot = wrap(s.rot)
+      if (s.phase === 'orbit' && Math.abs(s.rot) > 3600) s.rot = wrap(s.rot)
 
       // The front card's QR flip + ripple: orbit phase only, never while cards are in flight.
       if (s.phase === 'orbit' && !s.dragging && s.p.every((v) => v === 0)) {
@@ -418,6 +443,9 @@ function OrbitRing() {
         s.phase = 'return'
         s.phaseAt = s.clock
         s.pFrom = [...s.p]
+        // Follow each card's angle continuously from here (see `base`).
+        for (let i = 0; i < N; i++) s.base[i] = wrap(i * STEP + s.rot)
+        s.rotBase = s.rot
         if (wrapRef.current) wrapRef.current.dataset.phase = 'return'
       }
       s.startX = e.clientX
