@@ -3024,6 +3024,10 @@ a {
     grid-template-columns: 1fr;
     gap: var(--title-gap);
   }
+  /* "Continue." always gets its own line on phones and tablets. */
+  .how .h2 .accent {
+    display: block;
+  }
   .how__sub {
     justify-self: start;
   }
