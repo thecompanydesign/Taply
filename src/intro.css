@@ -641,6 +641,15 @@ main:focus {
 }
 
 /* Short screens: a smaller push, so nothing reaches the bottom edge. */
+/* Desktop: the stage (words, keyboard, hands, card) sits up to 40px lower
+   (offset 20px -> 60px); the SOUND / SKIP controls don't move. On shorter
+   screens the extra shrinks so the keyboard keeps a 12px margin above the
+   bottom edge: the full 40px from about 900px tall, about 24px at 720px. */
+@media (min-width: 1024px) {
+  .intro {
+    --intro-offset: clamp(20px, calc(9vh - 21px), 60px);
+  }
+}
 @media (max-height: 700px) {
   .intro {
     --intro-offset: 12px;

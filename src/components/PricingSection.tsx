@@ -74,20 +74,23 @@ export function PricingSection() {
                 One versatile plastic NFC card, connected to your personalised digital business profile.
               </p>
 
-              <p className="price">
-                <span className="sr-only">KES {PRICE_TEXT}</span>
-                <span className="price__cur" aria-hidden="true">
-                  KES
-                </span>
-                <span className="price__num" aria-hidden="true" ref={numRef}>
-                  {PRICE_TEXT}
-                </span>
-              </p>
-
-              <div className="panel__action">
+              {/* The price row sets this block's width; the button fills it (desktop). */}
+              <div className="panel__buy">
+                <p className="price">
+                  <span className="sr-only">KES {PRICE_TEXT}</span>
+                  <span className="price__cur" aria-hidden="true">
+                    KES
+                  </span>
+                  <span className="price__num" aria-hidden="true" ref={numRef}>
+                    {PRICE_TEXT}
+                  </span>
+                </p>
                 <CTA href={ORDER_URL} variant="lime" external srNote={ORDER_LINK_NOTE}>
                   Get your Taply card
                 </CTA>
+              </div>
+
+              <div className="panel__action">
                 <p className="panel__note">One-off cost. Update your digital profile anytime at no extra cost, and share it with a tap or scan. No app needed for anyone you meet.</p>
                 <p className="panel__team">
                   Need cards for a team? <a href="#teams">See team orders.</a>

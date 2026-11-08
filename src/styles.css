@@ -2159,6 +2159,19 @@ a {
   letter-spacing: -0.06em;
   font-variant-numeric: tabular-nums;
 }
+/* Desktop: the button is exactly as wide as the price row above it. The note
+   sits outside this block, so it keeps its own line length. */
+@media (min-width: 1024px) {
+  .panel__buy {
+    display: grid;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .panel__buy .cta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 .panel__note {
   margin-top: 18px;
   font-size: 14px;
@@ -2478,14 +2491,59 @@ a {
     transform: scale(1.5);
   }
 }
-/* Before the entrance the cards wait as one pile and the circle is smaller. */
+/* Before the entrance the circle is smaller (the cards wait as a pile, placed by JS). */
 @media (prefers-reduced-motion: no-preference) {
-  .js .teams__visual:not(.is-in) .orbit__slot {
-    transform: none;
-  }
   .js .teams__visual:not(.is-in) .teams__circle {
     scale: 0.85;
   }
+}
+/* Stack phase: one light sheen across the top card... */
+.orbit__card.is-sheen .orbit__face:not(.orbit__face--back) .pcard__gloss::after {
+  content: '';
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: -50%;
+  width: 45%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(76, 27, 241, 0.1) 30%,
+    rgba(255, 255, 255, 0.9) 50%,
+    rgba(76, 27, 241, 0.1) 70%,
+    transparent 100%
+  );
+  transform: translateX(0) skewX(-14deg);
+  transition: none;
+  animation: orbit-sheen 1400ms cubic-bezier(0.45, 0, 0.35, 1) both;
+}
+@keyframes orbit-sheen {
+  to {
+    transform: translateX(520%) skewX(-14deg);
+  }
+}
+/* ...and one lime NFC ripple from the centre, as if the stack was tapped. */
+.orbit__pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(62cqw, 340px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.orbit__pulse i {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--signal-lime);
+  border-radius: 50%;
+  opacity: 0;
+}
+.orbit__pulse.is-on i {
+  animation: orbit-ripple 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.orbit__pulse.is-on i:nth-child(2) {
+  animation-delay: 220ms;
 }
 
 /* ==========================================================================
