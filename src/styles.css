@@ -2845,6 +2845,17 @@ a {
   }
 }
 
+/* Desktop laptops (up to 800px tall, where the hero sits at the top rather
+   than centred): 28px more room between the nav bar and the hero tag. The
+   whole hero block (copy and card visual) moves down together, and the
+   bottom padding gives the same 28px back so the hero keeps its height.
+   Taller screens centre the hero and already have plenty of room. */
+@media (min-width: 1024px) and (max-height: 800px) {
+  .hero__inner {
+    padding-block: 32px 28px;
+  }
+}
+
 /* ==========================================================================
    Tablet
    ========================================================================== */
