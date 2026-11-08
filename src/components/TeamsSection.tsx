@@ -42,10 +42,18 @@ const STACK_ROT = [-5, 5, -2, 2]
 const STACK_X = [-0.03, 0.03, -0.015, 0]
 const STACK_Y = [0.0375, 0.0125, -0.0125, -0.0375]
 // The fan: a hand of cards turning about a point below the pile, left (0) to right (3).
+// Mobile (under 768px) has bigger cards (see --team-card-w), so its fan is a
+// little tighter and the deal swings out a little less, to stay on screen.
 const FAN = {
   wide: { angles: [-24, -8, 8, 24], radius: 2.2, scale: 0.78 },
   narrow: { angles: [-18, -6, 6, 18], radius: 2.8, scale: 0.76 },
+  mobile: { angles: [-16, -5, 5, 16], radius: 2.6, scale: 0.76 },
 }
+type Fan = (typeof FAN)[keyof typeof FAN]
+const MOBILE_MQ = '(max-width: 767px)'
+const DEAL_OUT_MOBILE = 0.6
+const isMobile = () => window.matchMedia(MOBILE_MQ).matches
+const fanFor = (el: HTMLElement): Fan => (isMobile() ? FAN.mobile : el.clientWidth < 480 ? FAN.narrow : FAN.wide)
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -94,8 +102,7 @@ const mix = (a: Pose, b: Pose, k: number): Pose => ({
   sh: a.sh + (b.sh - a.sh) * k,
 })
 const stackPose = (k: number): Pose => ({ x: STACK_X[k], y: STACK_Y[k], r: STACK_ROT[k], s: 1, sh: (N - 1 - k) * 0.04 })
-const fanPose = (k: number, narrow: boolean): Pose => {
-  const f = narrow ? FAN.narrow : FAN.wide
+const fanPose = (k: number, f: Fan): Pose => {
   const rad = (f.angles[k] * Math.PI) / 180
   const reach = f.radius * f.scale
   const arch = reach * (1 - Math.cos((Math.max(...f.angles) * Math.PI) / 180))
@@ -136,7 +143,8 @@ function CardFan() {
     // The deal phase: layers before, after the first and after the second deal.
     deal: [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]] as number[][],
     dealt: [-1, -1], // the card each deal moves
-    narrow: false,
+    fan: FAN.wide as Fan,
+    dealOut: DEAL_OUT,
     tilt: { x: 0, y: 0, tx: 0, ty: 0 },
     written: { pose: [] as string[], z: [] as number[], sh: [] as number[], glow: [] as number[], ring: [] as string[], tilt: '' },
     didEnter: false,
@@ -168,7 +176,7 @@ function CardFan() {
       const el = cardRefs.current[i]
       if (!el) return
       const pose =
-        `translate3d(calc(var(--card-w) * ${p.x.toFixed(4)}), calc(var(--card-w) * ${p.y.toFixed(4)} - ${liftPx.toFixed(2)}px), 0) ` +
+        `translate3d(calc(var(--team-card-w) * ${p.x.toFixed(4)}), calc(var(--team-card-w) * ${p.y.toFixed(4)} - var(--fan-lift-unit, 1px) * ${liftPx.toFixed(2)}), 0) ` +
         `rotate(${p.r.toFixed(2)}deg) scale(${p.s.toFixed(4)})`
       if (w.pose[i] !== pose) {
         el.style.transform = pose
@@ -194,15 +202,15 @@ function CardFan() {
       if (w.ring[j] === key) return
       w.ring[j] = key
       el.style.opacity = o <= 0 ? '0' : o.toFixed(3)
-      if (o > 0) el.style.transform = `translate3d(calc(var(--card-w) * ${x.toFixed(4)}), calc(var(--card-w) * ${y.toFixed(4)}), 0) scale(${sc.toFixed(3)})`
+      if (o > 0) el.style.transform = `translate3d(calc(var(--team-card-w) * ${x.toFixed(4)}), calc(var(--team-card-w) * ${y.toFixed(4)}), 0) scale(${sc.toFixed(3)})`
     }
 
     if (reducedMotion()) {
       // The still fan: no cycle, no tilt.
-      const narrow = root.clientWidth < 480
+      const fan = fanFor(root)
       for (let i = 0; i < N; i++) {
         setZ(i, i)
-        paintCard(i, fanPose(i, narrow))
+        paintCard(i, fanPose(i, fan))
       }
       root.dataset.phase = 'fan'
       setEntered(true)
@@ -221,7 +229,8 @@ function CardFan() {
       s.phaseAt = s.clock
       root.dataset.phase = phase
       s.from = s.now.map((p) => ({ ...p }))
-      s.narrow = root.clientWidth < 480
+      s.fan = fanFor(root)
+      s.dealOut = isMobile() ? DEAL_OUT_MOBILE : DEAL_OUT
       for (let i = 0; i < N; i++) setZ(i, s.layer[i])
       if (phase === 'deal') {
         // Twice: the top card goes to the back and the others move up one place.
@@ -281,7 +290,7 @@ function CardFan() {
               const arc = Math.sin(Math.PI * e)
               if (i === s.dealt[d]) {
                 // Out to the right, then round the back of the pile.
-                p.x += DEAL_OUT * arc
+                p.x += s.dealOut * arc
                 p.y += DEAL_DIP * Math.sin(2 * Math.PI * e)
                 p.r += DEAL_TURN * arc
                 p.s *= 1 - (1 - DEAL_SCALE) * arc
@@ -294,10 +303,10 @@ function CardFan() {
             break
           }
           case 'fan':
-            p = mix(s.from[i], fanPose(k, s.narrow), ease(unit((t - k * FAN_STAGGER) / FAN_FLIGHT)))
+            p = mix(s.from[i], fanPose(k, s.fan), ease(unit((t - k * FAN_STAGGER) / FAN_FLIGHT)))
             break
           case 'tap': {
-            const c = fanPose(k, s.narrow)
+            const c = fanPose(k, s.fan)
             p = mix(s.from[i], c, settle)
             // The pulse reaches the cards left to right (fan slot = layer).
             const at = WAVE_START + k * WAVE_STEP

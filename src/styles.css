@@ -2369,8 +2369,9 @@ a {
   transition: scale 1100ms var(--ease);
 }
 .fan {
-  /* A pile card is 40% of the circle's width. */
-  --card-w: calc(min(84cqw, 460px) * 0.4);
+  /* A pile card is 40% of the circle's width (bigger on mobile, see below).
+     Every card-dependent size reads --team-card-w. */
+  --team-card-w: calc(min(84cqw, 460px) * 0.4);
   position: absolute;
   inset: 0;
 }
@@ -2382,9 +2383,9 @@ a {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: var(--card-w);
-  height: calc(var(--card-w) / 1.586);
-  margin: calc(var(--card-w) / -3.172) 0 0 calc(var(--card-w) / -2);
+  width: var(--team-card-w);
+  height: calc(var(--team-card-w) / 1.586);
+  margin: calc(var(--team-card-w) / -3.172) 0 0 calc(var(--team-card-w) / -2);
   will-change: transform;
 }
 .fan__face {
@@ -2437,13 +2438,35 @@ a {
   left: 50%;
   top: 50%;
   z-index: 10;
-  width: calc(var(--card-w) * 0.8);
+  width: calc(var(--team-card-w) * 0.8);
   aspect-ratio: 1;
-  margin: calc(var(--card-w) * -0.4) 0 0 calc(var(--card-w) * -0.4);
+  margin: calc(var(--team-card-w) * -0.4) 0 0 calc(var(--team-card-w) * -0.4);
   border: 1.5px solid var(--signal-lime);
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
+}
+/* Mobile (under 768px): cards 27% bigger. The circle and the visual's height
+   follow the card; the tap lift and ring line scale with it (the lift is
+   10px at the old 112px card). The fan and deal are tightened in JS. */
+@media (max-width: 767px) {
+  .teams__visual::before {
+    content: '';
+    display: block;
+    height: calc(var(--team-card-w) * 2.24 + 40px);
+  }
+  .teams__visual::before,
+  .teams__circle,
+  .fan {
+    --team-card-w: calc(min(84cqw, 460px) * 0.4 * 1.27);
+    --fan-lift-unit: calc(var(--team-card-w) / 112);
+  }
+  .teams__circle {
+    width: min(100%, calc(var(--team-card-w) * 2.24));
+  }
+  .fan__ring {
+    border-width: calc(1.5 * var(--fan-lift-unit));
+  }
 }
 /* Before the entrance the circle is smaller. */
 @media (prefers-reduced-motion: no-preference) {
