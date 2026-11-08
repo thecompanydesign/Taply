@@ -2341,15 +2341,21 @@ a {
   }
 }
 
-/* The orbit ring: seven identical cards on a 3D carousel inside the violet
-   circle. TeamsSection.tsx turns the ring (inline transform) and sets each
-   card's depth (--shade, scale). Sizes follow the visual's width (cqw), so
-   the ring always fits. Only transform and opacity animate. */
+/* The card fan: four identical cards inside the violet circle that loop
+   through stack, deal, fan, tap wave and gather. TeamsSection.tsx places
+   each card (inline transform, z-index, --shade) and the tap glow and ripple
+   opacities. Sizes follow the circle, so everything fits inside it. Only
+   transform and opacity animate. */
 .teams__visual {
   position: relative;
   min-height: 520px;
   overflow: hidden;
   container-type: inline-size;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 .teams__circle {
   position: absolute;
@@ -2362,56 +2368,30 @@ a {
   transform: translate(-50%, -50%);
   transition: scale 1100ms var(--ease);
 }
-.orbit {
-  /* Four cards, 90 degrees apart: larger cards on a radius just wide enough
-     that neighbours never touch, so the ring fills the circle. */
-  --card-w: min(33cqw, 185px);
-  --radius: calc(var(--card-w) * 1.05);
+.fan {
+  /* A pile card is 40% of the circle's width. */
+  --card-w: calc(min(84cqw, 460px) * 0.4);
   position: absolute;
   inset: 0;
-  perspective: 1100px;
-  touch-action: pan-y;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  cursor: grab;
 }
-.orbit:active {
-  cursor: grabbing;
-}
-.orbit__ring {
+.fan__tilt {
   position: absolute;
   inset: 0;
-  transform: rotateX(-8deg);
-  transform-style: preserve-3d;
-  will-change: transform;
 }
-.orbit__slot {
+.fan__card {
   position: absolute;
   left: 50%;
   top: 50%;
   width: var(--card-w);
   height: calc(var(--card-w) / 1.586);
   margin: calc(var(--card-w) / -3.172) 0 0 calc(var(--card-w) / -2);
-  transform: rotateY(calc(var(--i) * 360deg / 4)) translateZ(var(--radius));
-  transform-style: preserve-3d;
+  will-change: transform;
 }
-.orbit__card,
-.orbit__flip {
+.fan__face {
   position: absolute;
   inset: 0;
-  transform-style: preserve-3d;
 }
-.orbit__face {
-  position: absolute;
-  inset: 0;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
-.orbit__face--back {
-  transform: rotateY(180deg);
-}
-.orbit__symbol {
+.fan__symbol {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -2420,17 +2400,27 @@ a {
   translate: -50% -50%;
   -webkit-user-drag: none;
 }
-.orbit__qr {
+/* The tap: a lime glow around the symbol (its own shape, blurred, behind it). */
+.fan__glow {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  filter: blur(2.2cqw);
+  pointer-events: none;
+}
+.fan__glow i {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 40cqw;
-  height: auto;
+  width: 31cqw;
+  aspect-ratio: 518 / 405;
   translate: -50% -50%;
-  -webkit-user-drag: none;
+  background: var(--signal-lime);
+  -webkit-mask: url('/brand/taply-symbol.png') center / contain no-repeat;
+  mask: url('/brand/taply-symbol.png') center / contain no-repeat;
 }
-/* Depth: cards turned away get a Carbon shade (opacity only). */
-.orbit__shade {
+/* Depth: lower cards in the pile get a faint Carbon shade (opacity only). */
+.fan__shade {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -2441,66 +2431,28 @@ a {
 .teams .pcard__gloss::after {
   content: none;
 }
-/* The front card's moment: a half-flip to the QR side and back, with a lime
-   NFC ripple, as if it had just been tapped. */
-.orbit__card.is-moment .orbit__flip {
-  animation: orbit-flip 1400ms cubic-bezier(0.45, 0, 0.25, 1);
-}
-.orbit__ripple {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.orbit__ripple i {
+/* Two thin lime NFC rings per card, above the fan. */
+.fan__ring {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 100%;
+  z-index: 10;
+  width: calc(var(--card-w) * 0.8);
   aspect-ratio: 1;
-  margin: -50% 0 0 -50%;
+  margin: calc(var(--card-w) * -0.4) 0 0 calc(var(--card-w) * -0.4);
   border: 1.5px solid var(--signal-lime);
   border-radius: 50%;
   opacity: 0;
+  pointer-events: none;
 }
-.orbit__card.is-moment .orbit__ripple i {
-  animation: orbit-ripple 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.orbit__card.is-moment .orbit__ripple i:nth-child(2) {
-  animation-delay: 220ms;
-}
-@keyframes orbit-flip {
-  0% {
-    transform: rotateY(0deg);
-  }
-  32%,
-  62% {
-    transform: rotateY(180deg);
-  }
-  100% {
-    transform: rotateY(0deg);
-  }
-}
-@keyframes orbit-ripple {
-  0% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  15% {
-    opacity: 0.35;
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.5);
-  }
-}
-/* Before the entrance the circle is smaller (the cards wait as a pile, placed by JS). */
+/* Before the entrance the circle is smaller. */
 @media (prefers-reduced-motion: no-preference) {
   .js .teams__visual:not(.is-in) .teams__circle {
     scale: 0.85;
   }
 }
-/* Stack phase: one light sheen across the top card... */
-.orbit__card.is-sheen .orbit__face:not(.orbit__face--back) .pcard__gloss::after {
+/* Stack phase: one light sheen across the top card. */
+.fan__card.is-sheen .pcard__gloss::after {
   content: '';
   position: absolute;
   top: -25%;
@@ -2517,35 +2469,12 @@ a {
   );
   transform: translateX(0) skewX(-14deg);
   transition: none;
-  animation: orbit-sheen 1400ms cubic-bezier(0.45, 0, 0.35, 1) both;
+  animation: fan-sheen 1400ms cubic-bezier(0.45, 0, 0.35, 1) both;
 }
-@keyframes orbit-sheen {
+@keyframes fan-sheen {
   to {
     transform: translateX(520%) skewX(-14deg);
   }
-}
-/* ...and one lime NFC ripple from the centre, as if the stack was tapped. */
-.orbit__pulse {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(62cqw, 340px);
-  aspect-ratio: 1;
-  translate: -50% -50%;
-  pointer-events: none;
-}
-.orbit__pulse i {
-  position: absolute;
-  inset: 0;
-  border: 1.5px solid var(--signal-lime);
-  border-radius: 50%;
-  opacity: 0;
-}
-.orbit__pulse.is-on i {
-  animation: orbit-ripple 1100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.orbit__pulse.is-on i:nth-child(2) {
-  animation-delay: 220ms;
 }
 
 /* ==========================================================================
@@ -3336,9 +3265,6 @@ a {
   }
   .teams__visual {
     min-height: 320px;
-  }
-  .orbit {
-    perspective: 800px;
   }
 
   .footer {

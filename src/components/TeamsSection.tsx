@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent } from 'react'
+import type { PointerEvent } from 'react'
 import { BrandMark, CTA, ORDER_LINK_NOTE, SectionIntro, TEAM_ORDER_URL } from './shared'
 
 const POINTS = [
@@ -8,42 +8,48 @@ const POINTS = [
   { title: 'One point of contact', text: 'We handle design, printing and delivery, and you talk to one team on WhatsApp.' },
 ]
 
-const N = 4 // cards on the ring, 90 degrees apart
-const STEP = 360 / N
-const SPEED = 360 / 20000 // deg per ms: one turn every 20 s
-const HOVER_SPEED = 0.3 // share of SPEED while a mouse is over the ring (orbit phase only)
-const TILT = -8 // deg: the ring leans back, so we look down on it a little
-const TILT_SCROLL = 3 // deg of extra tilt as the section scrolls past
-const DRAG = 0.35 // deg per px dragged
-const RESUME = 2000 // ms after release before the cycle continues
-const MOMENT = 1400 // ms: the front card's flip + ripple (orbit phase only)
+const N = 4 // cards in the pile
 
-/** The loop, in ms: orbit, gather into a stack, hold, release back to the ring. */
-export const ORBIT_CYCLE = { orbit: 8000, gather: 2100, stack: 2200, release: 2100 } as const
-const GATHER_FIRST = 250 // the first card leaves while the ring is slowing down
-const GATHER_DECEL = 650 // the ring eases to a stop over this long
-const GATHER_STAGGER = 170
-const RELEASE_STAGGER = 190 // top card first
-const ENTRY_STAGGER = 110
-const ENTRY_FLIGHT = 1100
-const ENTRY_SPIN = ENTRY_STAGGER * (N - 1) + 1400
-const RETURN_MS = 450 // cards fly home when someone grabs the ring mid-cycle
-const STACK_CONTRACT = 0.8 // ring radius while the cards are piled
+/** The loop, in ms: stack, deal (two cards to the back), fan open, tap wave, gather. */
+export const TEAMS_CYCLE = { stack: 2400, deal: 2400, fan: 1600, tap: 3200, gather: 1800 } as const
+type Phase = keyof typeof TEAMS_CYCLE
+const NEXT: Record<Phase, Phase> = { stack: 'deal', deal: 'fan', fan: 'tap', tap: 'gather', gather: 'stack' }
 
-// Each card's place in the stack, bottom (0) to top (3): offsets in card
-// widths, a few degrees of turn, a little depth so they never intersect.
-// The vertical steps keep every card's edge visible.
+const DEAL_MS = 1100 // one card's trip from the top to the back of the pile
+const DEAL_AT = [0, 1200] // when each of the two deals starts
+const DEAL_OUT = 0.78 // card widths the dealt card swings out to the right
+const DEAL_DIP = 0.05 // it goes out a little low and comes back a little high
+const DEAL_TURN = 8 // deg of extra turn at the far point
+const DEAL_SCALE = 0.8 // it shrinks as it goes round the back
+const PILE_SHIFT = 0.2 // card widths the rest of the pile slides left to make room
+const FAN_STAGGER = 60
+const FAN_FLIGHT = TEAMS_CYCLE.fan - FAN_STAGGER * (N - 1)
+const GATHER_STAGGER = 110
+const GATHER_FLIGHT = TEAMS_CYCLE.gather - GATHER_STAGGER * (N - 1)
+const SETTLE_MS = 700 // hold phases ease from wherever a skip left the cards
+const WAVE_START = 150
+const WAVE_STEP = 550 // the NFC pulse reaches the next card
+const RISE_PX = 10
+const RISE_MS = 800
+const GLOW_MS = 900
+const RIPPLE_MS = 1100
+const RIPPLE_GAP = 220
+const TILT_MAX = 5 // deg, toward the pointer (desktop)
+
+// Each card's place in the pile, bottom (0) to top (3): offsets in card
+// widths and a few degrees of turn, so every card's edge shows.
 const STACK_ROT = [-5, 5, -2, 2]
 const STACK_X = [-0.03, 0.03, -0.015, 0]
-const STACK_Y = [0.075, 0.05, 0.025, 0]
-const STACK_Z = 0.035 // card widths between layers
-const STACK_SCALE = 1.22
+const STACK_Y = [0.0375, 0.0125, -0.0125, -0.0375]
+// The fan: a hand of cards turning about a point below the pile, left (0) to right (3).
+const FAN = {
+  wide: { angles: [-24, -8, 8, 24], radius: 2.2, scale: 0.78 },
+  narrow: { angles: [-18, -6, 6, 18], radius: 2.8, scale: 0.76 },
+}
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
-const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
-/** Angle in (-180, 180]. */
-const wrap = (a: number) => ((((a + 180) % 360) + 360) % 360) - 180
+const unit = (v: number) => clamp(v, 0, 1)
 
 /** CSS cubic-bezier(x1, y1, x2, y2) as a function of time (Newton steps, then bisection). */
 function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
@@ -73,78 +79,77 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
     return sy(t)
   }
 }
-/** Card flights: a smooth ease-in-out with a long, soft landing. No overshoot or bounce. */
-const flightEase = cubicBezier(0.45, 0.05, 0.15, 1)
-/** Speed changes of the ring: smooth at both ends. */
-const smooth = (t: number) => {
-  const x = clamp(t, 0, 1)
-  return x * x * (3 - 2 * x)
-}
+/** The site's easing, cubic-bezier(0.2, 0.8, 0.2, 1): a long, soft ease-out with no overshoot. */
+const ease = cubicBezier(0.2, 0.8, 0.2, 1)
+/** The deal: a symmetric ease-in-out, so the far point of the trip is exactly halfway. */
+const easeInOut = cubicBezier(0.45, 0, 0.55, 1)
 
-type Phase = 'pile' | 'entry' | 'orbit' | 'gather' | 'stack' | 'release' | 'return'
+/** A card's pose: offsets in card widths, turn in deg, scale, Carbon shade (0..1). */
+type Pose = { x: number; y: number; r: number; s: number; sh: number }
+const mix = (a: Pose, b: Pose, k: number): Pose => ({
+  x: a.x + (b.x - a.x) * k,
+  y: a.y + (b.y - a.y) * k,
+  r: a.r + (b.r - a.r) * k,
+  s: a.s + (b.s - a.s) * k,
+  sh: a.sh + (b.sh - a.sh) * k,
+})
+const stackPose = (k: number): Pose => ({ x: STACK_X[k], y: STACK_Y[k], r: STACK_ROT[k], s: 1, sh: (N - 1 - k) * 0.04 })
+const fanPose = (k: number, narrow: boolean): Pose => {
+  const f = narrow ? FAN.narrow : FAN.wide
+  const rad = (f.angles[k] * Math.PI) / 180
+  const reach = f.radius * f.scale
+  const arch = reach * (1 - Math.cos((Math.max(...f.angles) * Math.PI) / 180))
+  return { x: reach * Math.sin(rad), y: reach * (1 - Math.cos(rad)) - arch / 2, r: f.angles[k], s: f.scale, sh: (N - 1 - k) * 0.015 }
+}
+/** 0 -> 1 -> 0 over `ms` from `at`, smooth at both ends. */
+const bump = (t: number, at: number, ms: number) => Math.sin(Math.PI * unit((t - at) / ms)) ** 2
 
 /**
- * A ring of four identical cards in 3D that loops through four phases:
- * orbit, gather (cards sweep in from the back and pile up), stack (a short
- * hold with a sheen and a tap ripple), release (cards fly back out).
+ * Four identical cards that loop: a neat pile (stack), two cards dealt from
+ * the top to the back (deal), a hand-of-cards fan (fan), a lime NFC pulse
+ * across the fan (tap), and back into the pile (gather).
  *
- * Every card has a ring pose (its angle on the ring) and a stack pose (its
- * layer in the pile). One number per card, p (0 = ring, 1 = stack), blends
- * the two along a curved path: the angle swings toward the front while the
- * radius shrinks, with a small arc toward the viewer, so a card never cuts
- * through the pile. One rAF loop on its own clock writes only transforms and
- * the shade opacity; the clock stops off screen and in a hidden tab.
- * Reduced motion: a still ring.
+ * Each card has a layer (its place in the pile, 0 = bottom). Its fan slot is
+ * the same number, so the overlap order is the same in the pile and the fan
+ * (right over left), and z-index only changes for a dealt card, at the far
+ * point of its trip, where it is clear of the pile. Every phase eases from
+ * the poses the cards had when it began, so a skip never jumps. One rAF loop
+ * on its own clock writes transforms and opacities only; it stops off screen
+ * and in a hidden tab. Reduced motion: the still fan.
  */
-function OrbitRing() {
+function CardFan() {
   const wrapRef = useRef<HTMLDivElement>(null)
-  const ringRef = useRef<HTMLDivElement>(null)
-  const pulseRef = useRef<HTMLSpanElement>(null)
-  const slotRefs = useRef<(HTMLDivElement | null)[]>([])
+  const tiltRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const glowRefs = useRef<(HTMLSpanElement | null)[]>([])
+  const ringRefs = useRef<(HTMLElement | null)[]>([])
   const [entered, setEntered] = useState(false)
 
   // Mutable animation state (no re-renders while it runs).
   const st = useRef({
     clock: 0, // ms of animation time (frozen while paused)
-    phase: 'pile' as Phase,
-    phaseAt: 0, // clock time the phase began
-    rot: 0,
-    vel: 0, // deg/ms, after a drag
-    speed: 1, // share of SPEED, eased toward its target
-    dragging: false,
-    moved: false,
-    hover: false,
-    startX: 0,
-    startRot: 0,
-    lastX: 0,
-    lastT: 0,
-    resumeAt: -1, // clock time the cycle may continue after a drag
-    snapTo: null as number | null,
-    contract: 1, // ring radius factor (shrinks while cards leave it)
-    p: Array.from({ length: N }, () => 1), // per card: 0 = ring, 1 = stack (starts piled)
-    pFrom: Array.from({ length: N }, () => 1),
-    layer: Array.from({ length: N }, (_, i) => i), // stack layer per card (6 = top)
-    momentCard: -1,
-    // While cards fly (entry, gather, release, return), each card's ring angle
-    // is followed continuously from where it was when the phase began, so it
-    // never wraps from +180 to -180 (a jump to the other side) mid-flight.
-    base: Array.from({ length: N }, () => 0),
-    rotBase: 0,
-    speedFrom: 1, // ring speed when the gather began
-    shade: [] as number[],
-    pose: [] as string[],
+    phase: 'stack' as Phase,
+    phaseAt: 0,
+    layer: Array.from({ length: N }, (_, i) => i),
+    from: Array.from({ length: N }, (_, i) => stackPose(i)),
+    now: Array.from({ length: N }, (_, i) => stackPose(i)),
+    // The deal phase: layers before, after the first and after the second deal.
+    deal: [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]] as number[][],
+    dealt: [-1, -1], // the card each deal moves
+    narrow: false,
+    tilt: { x: 0, y: 0, tx: 0, ty: 0 },
+    written: { pose: [] as string[], z: [] as number[], sh: [] as number[], glow: [] as number[], ring: [] as string[], tilt: '' },
     didEnter: false,
     timers: new Set<number>(),
-    release: () => {},
+    skip: () => {},
   })
 
   useEffect(() => {
     const root = wrapRef.current
-    const ring = ringRef.current
-    if (!root || !ring) return
+    const tiltEl = tiltRef.current
+    if (!root || !tiltEl) return
     const s = st.current
-    const reduced = reducedMotion()
+    const w = s.written
     const later = (fn: () => void, ms: number) => {
       const t = window.setTimeout(() => {
         s.timers.delete(t)
@@ -152,233 +157,182 @@ function OrbitRing() {
       }, ms)
       s.timers.add(t)
     }
-    const flash = (el: Element | null | undefined, cls: string, ms: number) => {
-      if (!el || el.classList.contains(cls)) return
-      el.classList.add(cls)
-      later(() => el.classList.remove(cls), ms)
-    }
 
-    /** Places every card from its blend value p (0 ring .. 1 stack). */
-    const paint = (tilt: number) => {
-      ring.style.transform = `rotateX(${tilt.toFixed(2)}deg)`
-      // One gentle rise and fall over the hold: zero at both ends, so the
-      // stack meets the gather and release without a step.
-      const breathe = s.phase === 'stack' ? -0.008 * Math.sin(Math.PI * clamp((s.clock - s.phaseAt) / ORBIT_CYCLE.stack, 0, 1)) : 0
-      const flying = s.phase !== 'orbit' && s.phase !== 'stack'
-      for (let i = 0; i < N; i++) {
-        const p = s.p[i]
-        const k = s.layer[i]
-        const ringAngle = flying ? s.base[i] + (s.rot - s.rotBase) : wrap(i * STEP + s.rot)
-        const facing = Math.cos((ringAngle * Math.PI) / 180) // 1 = facing us
-        // Ring part: angle swings to the front and the radius shrinks to 0 as p rises.
-        const a = ringAngle * (1 - p)
-        const r = s.contract * (1 - p)
-        const ax = r * Math.sin((a * Math.PI) / 180)
-        const az = r * Math.cos((a * Math.PI) / 180)
-        // Stack part, plus an arc up and toward the viewer mid-flight.
-        const arc = Math.sin(Math.PI * clamp(p, 0, 1))
-        const bx = STACK_X[k] * p
-        // Gathering cards arc toward the viewer, so they land on the pile from
-        // the front; released cards arc up and over, clear of the cards
-        // already back on the ring.
-        const out = s.phase === 'release' || s.phase === 'entry' || s.phase === 'return'
-        const by = (STACK_Y[k] + breathe) * p - (out ? 0.42 : 0.2) * arc
-        const bz = k * STACK_Z * p + (out ? 0.12 : 0.45) * arc
-        // A card in flight keeps facing us and turns to its ring angle only
-        // near the ring, so it never passes edge-on through another card.
-        const ry = ringAngle * Math.pow(1 - p, 1.8)
-        const spin = s.phase === 'release' || s.phase === 'entry' ? 14 * arc * (i % 2 ? 1 : -1) : 0
-        const rz = STACK_ROT[k] * p + spin
-        const ringScale = 1 + 0.08 * Math.pow(Math.max(0, facing), 8)
-        const sc = ringScale + (STACK_SCALE - ringScale) * p
-        const pose =
-          `translate3d(calc(var(--radius) * ${ax.toFixed(4)} + var(--card-w) * ${bx.toFixed(4)}), ` +
-          `calc(var(--card-w) * ${by.toFixed(4)}), calc(var(--radius) * ${az.toFixed(4)} + var(--card-w) * ${bz.toFixed(4)})) ` +
-          `rotateX(${(-tilt * p).toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) rotateZ(${rz.toFixed(2)}deg) scale(${sc.toFixed(4)})`
-        if (s.pose[i] !== pose) {
-          const slot = slotRefs.current[i]
-          if (slot) slot.style.transform = pose
-          s.pose[i] = pose
-        }
-        const shadeRing = ((1 - facing) / 2) * 0.5
-        const shade = Number((shadeRing + ((N - 1 - k) * 0.04 - shadeRing) * p).toFixed(3))
-        if (s.shade[i] !== shade) {
-          slotRefs.current[i]?.style.setProperty('--shade', String(shade))
-          s.shade[i] = shade
-        }
+    const setZ = (i: number, z: number) => {
+      if (w.z[i] === z) return
+      const el = cardRefs.current[i]
+      if (el) el.style.zIndex = String(z + 2)
+      w.z[i] = z
+    }
+    const paintCard = (i: number, p: Pose, liftPx = 0) => {
+      const el = cardRefs.current[i]
+      if (!el) return
+      const pose =
+        `translate3d(calc(var(--card-w) * ${p.x.toFixed(4)}), calc(var(--card-w) * ${p.y.toFixed(4)} - ${liftPx.toFixed(2)}px), 0) ` +
+        `rotate(${p.r.toFixed(2)}deg) scale(${p.s.toFixed(4)})`
+      if (w.pose[i] !== pose) {
+        el.style.transform = pose
+        w.pose[i] = pose
+      }
+      const sh = Number(p.sh.toFixed(3))
+      if (w.sh[i] !== sh) {
+        el.style.setProperty('--shade', String(sh))
+        w.sh[i] = sh
       }
     }
+    const setGlow = (i: number, v: number) => {
+      const o = Number(v.toFixed(3))
+      if (w.glow[i] === o) return
+      const el = glowRefs.current[i]
+      if (el) el.style.opacity = String(o)
+      w.glow[i] = o
+    }
+    const setRing = (j: number, x: number, y: number, sc: number, o: number) => {
+      const el = ringRefs.current[j]
+      if (!el) return
+      const key = o <= 0 ? '0' : `${x.toFixed(4)}|${y.toFixed(4)}|${sc.toFixed(3)}|${o.toFixed(3)}`
+      if (w.ring[j] === key) return
+      w.ring[j] = key
+      el.style.opacity = o <= 0 ? '0' : o.toFixed(3)
+      if (o > 0) el.style.transform = `translate3d(calc(var(--card-w) * ${x.toFixed(4)}), calc(var(--card-w) * ${y.toFixed(4)}), 0) scale(${sc.toFixed(3)})`
+    }
 
-    if (reduced) {
-      s.p.fill(0)
-      s.phase = 'orbit' // a still ring (no cycle)
-      s.rot = -30 // turned so all four cards show
-      paint(TILT)
+    if (reducedMotion()) {
+      // The still fan: no cycle, no tilt.
+      const narrow = root.clientWidth < 480
+      for (let i = 0; i < N; i++) {
+        setZ(i, i)
+        paintCard(i, fanPose(i, narrow))
+      }
+      root.dataset.phase = 'fan'
       setEntered(true)
       return
     }
 
-    /** Freezes each card's current ring angle as the start of a continuous flight. */
-    const anchor = () => {
-      for (let i = 0; i < N; i++) s.base[i] = wrap(i * STEP + s.rot)
-      s.rotBase = s.rot
-    }
     const go = (phase: Phase) => {
+      // A skip in the middle of a deal keeps only the deals that already
+      // passed their far point (that card is behind the pile by then).
+      if (s.phase === 'deal') {
+        const t = s.clock - s.phaseAt
+        const done = DEAL_AT.filter((at) => t - at >= DEAL_MS / 2).length
+        s.layer = [...s.deal[done]]
+      }
       s.phase = phase
       s.phaseAt = s.clock
       root.dataset.phase = phase
-      s.pFrom = [...s.p]
-      if (phase !== 'orbit' && phase !== 'stack') anchor()
-      if (phase === 'gather') s.speedFrom = s.speed
-      if (phase === 'gather') {
-        // Back of the ring first; the card at the front arrives last, on top.
-        const order = Array.from({ length: N }, (_, i) => i).sort(
-          (x, y) => Math.cos((wrap(x * STEP + s.rot) * Math.PI) / 180) - Math.cos((wrap(y * STEP + s.rot) * Math.PI) / 180),
-        )
-        order.forEach((card, rank) => (s.layer[card] = rank))
+      s.from = s.now.map((p) => ({ ...p }))
+      s.narrow = root.clientWidth < 480
+      for (let i = 0; i < N; i++) setZ(i, s.layer[i])
+      if (phase === 'deal') {
+        // Twice: the top card goes to the back and the others move up one place.
+        let layers = [...s.layer]
+        s.deal[0] = layers
+        for (let d = 0; d < 2; d++) {
+          const top = layers.indexOf(N - 1)
+          s.dealt[d] = top
+          layers = layers.map((k, i) => (i === top ? 0 : k + 1))
+          s.deal[d + 1] = layers
+        }
       }
       if (phase === 'stack') {
+        // One soft sheen across the top card.
         const top = s.layer.indexOf(N - 1)
         later(() => {
-          if (s.phase !== 'stack') return
-          flash(cardRefs.current[top], 'is-sheen', 1400)
-          flash(pulseRef.current, 'is-on', 1300)
+          const el = cardRefs.current[top]
+          if (s.phase !== 'stack' || !el || el.classList.contains('is-sheen')) return
+          el.classList.add('is-sheen')
+          later(() => el.classList.remove('is-sheen'), 1400)
         }, 300)
       }
     }
-    // Lets a tap on the stack start the release right away.
-    s.release = () => s.phase === 'stack' && go('release')
+    s.skip = () => go(NEXT[s.phase])
 
     let raf = 0
     let last = 0
     let inView = false
 
-    const frame = (now: number) => {
+    const frame = (nowMs: number) => {
       raf = 0
-      const dt = last ? Math.min(64, now - last) : 16
-      last = now
+      const dt = last ? Math.min(64, nowMs - last) : 16
+      last = nowMs
       s.clock += dt
       const t = s.clock - s.phaseAt
+      const settle = ease(unit(t / SETTLE_MS))
+      const tap = s.phase === 'tap'
 
-      // Reads first: how far the section has scrolled past the middle of the screen.
-      const r = root.getBoundingClientRect()
-      const off = clamp((r.top + r.height / 2 - innerHeight / 2) / innerHeight, -1, 1)
-      const tilt = TILT + off * TILT_SCROLL
+      for (let i = 0; i < N; i++) {
+        const k = s.layer[i]
+        let p: Pose
+        let lift = 0
+        switch (s.phase) {
+          case 'stack': {
+            // A gentle rise and fall over the hold, zero at both ends.
+            const target = stackPose(k)
+            target.y -= 0.008 * Math.sin(Math.PI * unit(t / TEAMS_CYCLE.stack))
+            p = mix(s.from[i], target, settle)
+            break
+          }
+          case 'deal': {
+            const e0 = easeInOut(unit((t - DEAL_AT[0]) / DEAL_MS))
+            const e1 = easeInOut(unit((t - DEAL_AT[1]) / DEAL_MS))
+            p = mix(mix(s.from[i], stackPose(s.deal[1][i]), e0), stackPose(s.deal[2][i]), e1)
+            for (let d = 0; d < 2; d++) {
+              const e = d ? e1 : e0
+              const arc = Math.sin(Math.PI * e)
+              if (i === s.dealt[d]) {
+                // Out to the right, then round the back of the pile.
+                p.x += DEAL_OUT * arc
+                p.y += DEAL_DIP * Math.sin(2 * Math.PI * e)
+                p.r += DEAL_TURN * arc
+                p.s *= 1 - (1 - DEAL_SCALE) * arc
+              } else {
+                p.x -= PILE_SHIFT * arc
+              }
+            }
+            // The dealt card drops behind the pile at the far point of its trip.
+            setZ(i, t < DEAL_AT[0] + DEAL_MS / 2 ? s.deal[0][i] : t < DEAL_AT[1] + DEAL_MS / 2 ? s.deal[1][i] : s.deal[2][i])
+            break
+          }
+          case 'fan':
+            p = mix(s.from[i], fanPose(k, s.narrow), ease(unit((t - k * FAN_STAGGER) / FAN_FLIGHT)))
+            break
+          case 'tap': {
+            const c = fanPose(k, s.narrow)
+            p = mix(s.from[i], c, settle)
+            // The pulse reaches the cards left to right (fan slot = layer).
+            const at = WAVE_START + k * WAVE_STEP
+            lift = RISE_PX * bump(t, at, RISE_MS)
+            setGlow(i, bump(t, at, GLOW_MS))
+            for (let r = 0; r < 2; r++) {
+              const u = (t - at - r * RIPPLE_GAP) / RIPPLE_MS
+              const o = u <= 0 || u >= 1 ? 0 : u < 0.15 ? (0.5 * u) / 0.15 : 0.5 * (1 - (u - 0.15) / 0.85)
+              setRing(i * 2 + r, c.x, c.y, 0.55 + 0.75 * ease(unit(u)), o)
+            }
+            break
+          }
+          default:
+            // Gather: bottom card first, the top card lands last.
+            p = mix(s.from[i], stackPose(k), ease(unit((t - k * GATHER_STAGGER) / GATHER_FLIGHT)))
+            break
+        }
+        s.now[i] = p
+        paintCard(i, p, lift)
+        if (!tap) setGlow(i, 0)
+      }
+      if (!tap) for (let j = 0; j < N * 2; j++) setRing(j, 0, 0, 1, 0)
+      if (t >= TEAMS_CYCLE[s.phase]) go(NEXT[s.phase])
 
-      switch (s.phase) {
-        case 'entry': {
-          // One pile unfurls into the ring while the ring turns once.
-          for (let i = 0; i < N; i++) {
-            const rank = N - 1 - s.layer[i]
-            s.p[i] = 1 - flightEase(clamp((t - rank * ENTRY_STAGGER) / ENTRY_FLIGHT, 0, 1))
-          }
-          s.rot = -360 * (1 - easeOutCubic(clamp(t / ENTRY_SPIN, 0, 1)))
-          if (t >= Math.max(ENTRY_SPIN, ENTRY_STAGGER * (N - 1) + ENTRY_FLIGHT)) {
-            s.p.fill(0)
-            s.rot = 0
-            go('orbit')
-          }
-          break
-        }
-        case 'gather': {
-          // The ring eases to a stop as the first card leaves; the cards then
-          // sweep in from the back, one by one, and land on the pile.
-          s.speed = s.speedFrom * (1 - smooth(t / GATHER_DECEL))
-          s.rot += SPEED * s.speed * dt
-          const flight = ORBIT_CYCLE.gather - GATHER_FIRST - GATHER_STAGGER * (N - 1)
-          for (let i = 0; i < N; i++) {
-            const start = GATHER_FIRST + s.layer[i] * GATHER_STAGGER
-            s.p[i] = flightEase(clamp((t - start) / flight, 0, 1))
-          }
-          s.contract = 1 - (1 - STACK_CONTRACT) * smooth(t / ORBIT_CYCLE.gather)
-          if (t >= ORBIT_CYCLE.gather) {
-            s.p.fill(1)
-            go('stack')
-          }
-          break
-        }
-        case 'stack':
-          if (t >= ORBIT_CYCLE.stack) go('release')
-          break
-        case 'release': {
-          // The cards peel off from the top, each easing back to its place on
-          // the ring, while the ring's speed builds smoothly from zero to normal.
-          const flight = ORBIT_CYCLE.release - RELEASE_STAGGER * (N - 1)
-          for (let i = 0; i < N; i++) {
-            const start = (N - 1 - s.layer[i]) * RELEASE_STAGGER
-            s.p[i] = 1 - flightEase(clamp((t - start) / flight, 0, 1))
-          }
-          s.contract = STACK_CONTRACT + (1 - STACK_CONTRACT) * smooth(t / ORBIT_CYCLE.release)
-          s.speed = smooth(t / ORBIT_CYCLE.release)
-          s.rot += SPEED * s.speed * dt
-          if (t >= ORBIT_CYCLE.release) {
-            s.p.fill(0)
-            s.contract = 1
-            s.speed = 1
-            go('orbit')
-          }
-          break
-        }
-        case 'return': {
-          // Someone grabbed the ring mid-cycle: every card flies home quickly.
-          const q = easeOutCubic(clamp(t / RETURN_MS, 0, 1))
-          for (let i = 0; i < N; i++) s.p[i] = s.pFrom[i] * (1 - q)
-          s.contract += (1 - s.contract) * q
-          if (q >= 1) {
-            s.p.fill(0)
-            s.contract = 1
-            s.phase = 'orbit' // the user now has the ring; the cycle restarts after they let go
-            s.phaseAt = s.clock
-            root.dataset.phase = 'orbit'
-          }
-          break
-        }
-        default:
-          break
+      // The lean toward the pointer, eased.
+      const tl = s.tilt
+      const k2 = 1 - Math.exp(-dt / 220)
+      tl.x += (tl.tx - tl.x) * k2
+      tl.y += (tl.ty - tl.y) * k2
+      const tilt = Math.abs(tl.x) < 0.01 && Math.abs(tl.y) < 0.01 ? 'none' : `perspective(900px) rotateX(${tl.x.toFixed(2)}deg) rotateY(${tl.y.toFixed(2)}deg)`
+      if (w.tilt !== tilt) {
+        tiltEl.style.transform = tilt
+        w.tilt = tilt
       }
 
-      // Ring motion in the orbit phase (and while handing back control).
-      if (s.phase === 'orbit') {
-        if (s.dragging) {
-          // The pointer sets the angle directly.
-        } else if (Math.abs(s.vel) > 0.004) {
-          s.rot += s.vel * dt
-          s.vel *= Math.exp(-dt / 320)
-          if (Math.abs(s.vel) <= 0.004) s.snapTo = Math.round(s.rot / STEP) * STEP
-        } else if (s.snapTo !== null && s.clock < s.resumeAt) {
-          s.rot += (s.snapTo - s.rot) * (1 - Math.exp(-dt / 140))
-        } else {
-          s.snapTo = null
-          const waiting = s.clock < s.resumeAt
-          const target = waiting ? 0 : s.hover ? HOVER_SPEED : 1
-          s.speed += (target - s.speed) * (1 - Math.exp(-dt / 500))
-          s.rot += SPEED * s.speed * dt
-          // After a drag, the orbit phase starts afresh once the ring is moving again.
-          if (s.resumeAt >= 0 && !waiting) {
-            s.resumeAt = -1
-            s.phaseAt = s.clock
-          }
-          if (s.clock - s.phaseAt >= ORBIT_CYCLE.orbit && s.resumeAt < 0) go('gather')
-        }
-      }
-      if (s.phase === 'orbit' && Math.abs(s.rot) > 3600) s.rot = wrap(s.rot)
-
-      // The front card's QR flip + ripple: orbit phase only, never while cards are in flight.
-      if (s.phase === 'orbit' && !s.dragging && s.p.every((v) => v === 0)) {
-        const front = Math.round(-s.rot / STEP)
-        const i = ((front % N) + N) % N
-        const off2 = Math.abs(wrap(i * STEP + s.rot))
-        // Only if the flip can finish before the cards start gathering.
-        const left = s.resumeAt >= 0 ? Infinity : ORBIT_CYCLE.orbit - (s.clock - s.phaseAt)
-        if (off2 < 4 && s.momentCard !== i && left > MOMENT + 100) {
-          s.momentCard = i
-          flash(cardRefs.current[i], 'is-moment', MOMENT)
-        } else if (off2 > STEP / 2) {
-          s.momentCard = -1
-        }
-      }
-
-      paint(tilt)
       if (inView && !document.hidden) raf = requestAnimationFrame(frame)
     }
 
@@ -399,7 +353,7 @@ function OrbitRing() {
         if (inView && !s.didEnter) {
           s.didEnter = true
           setEntered(true)
-          go('entry')
+          go('stack')
         }
         if (inView) start()
         else stop()
@@ -409,7 +363,10 @@ function OrbitRing() {
     io.observe(root)
     const onVis = () => (document.hidden ? stop() : start())
     document.addEventListener('visibilitychange', onVis)
-    paint(TILT) // the pile, until the section scrolls into view
+    for (let i = 0; i < N; i++) {
+      setZ(i, i)
+      paintCard(i, stackPose(i)) // the pile, until the section scrolls into view
+    }
 
     return () => {
       io.disconnect()
@@ -420,103 +377,46 @@ function OrbitRing() {
     }
   }, [])
 
-  // Drag / swipe to spin. touch-action: pan-y keeps vertical scrolling native.
-  const onDown = (e: PointerEvent<HTMLDivElement>) => {
-    const s = st.current
-    if (reducedMotion() || s.phase === 'entry' || s.phase === 'pile' || (e.pointerType === 'mouse' && e.button !== 0)) return
-    s.dragging = true
-    s.moved = false
-    s.vel = 0
-    s.snapTo = null
-    s.startX = s.lastX = e.clientX
-    s.startRot = s.rot
-    s.lastT = performance.now()
-    e.currentTarget.setPointerCapture(e.pointerId)
+  // Desktop: the cards lean a little toward the pointer.
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse' || reducedMotion()) return
+    const r = e.currentTarget.getBoundingClientRect()
+    st.current.tilt.ty = clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1) * TILT_MAX
+    st.current.tilt.tx = -clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1) * TILT_MAX
   }
-  const onMove = (e: PointerEvent<HTMLDivElement>) => {
-    const s = st.current
-    if (!s.dragging) return
-    if (!s.moved && Math.abs(e.clientX - s.startX) >= 4) {
-      s.moved = true
-      // Grabbed mid-cycle: send the cards home and hand the ring to the user.
-      if (s.phase === 'gather' || s.phase === 'stack' || s.phase === 'release') {
-        s.phase = 'return'
-        s.phaseAt = s.clock
-        s.pFrom = [...s.p]
-        // Follow each card's angle continuously from here (see `base`).
-        for (let i = 0; i < N; i++) s.base[i] = wrap(i * STEP + s.rot)
-        s.rotBase = s.rot
-        if (wrapRef.current) wrapRef.current.dataset.phase = 'return'
-      }
-      s.startX = e.clientX
-      s.startRot = s.rot
-    }
-    if (!s.moved) return
-    const now = performance.now()
-    const dt = Math.max(1, now - s.lastT)
-    s.vel = clamp(((e.clientX - s.lastX) * DRAG) / dt, -1.2, 1.2) * 0.6 + s.vel * 0.4
-    s.lastX = e.clientX
-    s.lastT = now
-    s.rot = s.startRot + (e.clientX - s.startX) * DRAG
-  }
-  const onUp = () => {
-    const s = st.current
-    if (!s.dragging) return
-    s.dragging = false
-    // A tap, or a vertical scroll the browser took over: no drag happened.
-    if (!s.moved) {
-      s.vel = 0
-      s.release() // a tap on the stack lets the cards go at once
-      return
-    }
-    if (performance.now() - s.lastT > 80) s.vel = 0 // held still before letting go
-    if (Math.abs(s.vel) <= 0.004) s.snapTo = Math.round(s.rot / STEP) * STEP
-    s.resumeAt = s.clock + RESUME
-    s.speed = 0
+  const onPointerLeave = () => {
+    st.current.tilt.tx = 0
+    st.current.tilt.ty = 0
   }
 
   return (
-    <div className={`teams__visual${entered ? ' is-in' : ''}`} ref={wrapRef} aria-hidden="true">
-      <span className="teams__circle" data-parallax="0.06" />
-      <span className="orbit__pulse" ref={pulseRef}>
-        <i />
-        <i />
-      </span>
-      <div
-        className="orbit"
-        onPointerDown={onDown}
-        onPointerMove={onMove}
-        onPointerUp={onUp}
-        onPointerCancel={onUp}
-        onPointerEnter={(e) => e.pointerType === 'mouse' && (st.current.hover = true)}
-        onPointerLeave={(e) => e.pointerType === 'mouse' && (st.current.hover = false)}
-      >
-        <div className="orbit__ring" ref={ringRef}>
+    <div
+      className={`teams__visual${entered ? ' is-in' : ''}`}
+      ref={wrapRef}
+      aria-hidden="true"
+      onClick={() => !reducedMotion() && st.current.skip()}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+    >
+      <span className="teams__circle" />
+      <div className="fan">
+        <div className="fan__tilt" ref={tiltRef}>
           {Array.from({ length: N }, (_, i) => (
-            <div className="orbit__slot" key={i} ref={(el) => void (slotRefs.current[i] = el)} style={{ '--i': i } as CSSProperties}>
-              <div className="orbit__card" ref={(el) => void (cardRefs.current[i] = el)}>
-                <div className="orbit__flip">
-                  <div className="pcard pcard--light orbit__face">
-                    <div className="pcard__face">
-                      <BrandMark variant="symbol" className="orbit__symbol" />
-                      <span className="pcard__gloss" />
-                      <span className="orbit__shade" />
-                    </div>
-                  </div>
-                  <div className="pcard pcard--dark orbit__face orbit__face--back">
-                    <div className="pcard__face">
-                      <img className="orbit__qr" src="/brand/taply-qr.svg" alt="" width="264" height="264" decoding="async" draggable={false} />
-                      <span className="pcard__gloss" />
-                      <span className="orbit__shade" />
-                    </div>
-                  </div>
+            <div className="fan__card" key={i} ref={(el) => void (cardRefs.current[i] = el)}>
+              <div className="pcard pcard--light fan__face">
+                <div className="pcard__face">
+                  <span className="fan__glow" ref={(el) => void (glowRefs.current[i] = el)}>
+                    <i />
+                  </span>
+                  <BrandMark variant="symbol" className="fan__symbol" />
+                  <span className="pcard__gloss" />
+                  <span className="fan__shade" />
                 </div>
-                <span className="orbit__ripple">
-                  <i />
-                  <i />
-                </span>
               </div>
             </div>
+          ))}
+          {Array.from({ length: N * 2 }, (_, j) => (
+            <i className="fan__ring" key={j} ref={(el) => void (ringRefs.current[j] = el)} />
           ))}
         </div>
       </div>
@@ -552,7 +452,7 @@ export function TeamsSection() {
           </div>
         </div>
 
-        <OrbitRing />
+        <CardFan />
       </div>
     </section>
   )
