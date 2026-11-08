@@ -757,9 +757,11 @@ html:has(.ob) {
 }
 .ob-ref {
   display: inline-grid;
-  gap: 4px;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px 12px;
   margin-top: 8px;
-  padding: 16px 20px;
+  padding: 16px 24px 16px 20px;
   border: 1px solid var(--soft-stone);
   border-radius: 2px;
   background: var(--cloud);
@@ -777,6 +779,75 @@ html:has(.ob) {
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--tap-violet);
+  -webkit-user-select: all;
+  user-select: all; /* one long-press selects the whole code */
+}
+/* Copy button: 44px target, the icon swaps to a check for a moment. */
+.ob-ref__copy {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -6px -10px -6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--carbon);
+  cursor: pointer;
+  transition:
+    background-color 180ms var(--ease),
+    color 180ms var(--ease);
+}
+.ob-ref__copy:hover,
+.ob-ref__copy:focus-visible {
+  background: rgba(76, 27, 241, 0.08);
+  color: var(--tap-violet);
+}
+.ob-ref__copy:focus-visible {
+  outline: 2px solid var(--tap-violet);
+  outline-offset: 2px;
+}
+.ob-ref__icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity 180ms var(--ease),
+    transform 180ms var(--ease);
+}
+.ob-ref__icon--done {
+  color: var(--tap-violet);
+  opacity: 0;
+  transform: scale(0.6);
+}
+.ob-ref.is-copied .ob-ref__icon--copy {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.ob-ref.is-copied .ob-ref__icon--done {
+  opacity: 1;
+  transform: none;
+}
+/* "Copied" sits above the button in the label row, so nothing shifts. */
+.ob-ref__done {
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tap-violet);
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
+}
+.ob-ref.is-copied .ob-ref__done {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-ref__icon,
+  .ob-ref__done,
+  .ob-ref__copy {
+    transition: none;
+  }
 }
 .ob-next__title {
   margin-top: 48px;

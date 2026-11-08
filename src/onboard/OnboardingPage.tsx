@@ -227,6 +227,78 @@ function Notice({ title, line, cta, href }: { title: string; line: string; cta: 
   )
 }
 
+/** Copies text: the Clipboard API, or a hidden textarea where it isn't available. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the textarea
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
+
+const COPIED_MS = 1800
+
+/** The reference with a copy button: the icon turns into a check and "Copied" shows for a moment. */
+function RefCard({ refCode }: { refCode: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(0)
+  const codeRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  const copy = async () => {
+    const ok = await copyText(refCode)
+    if (!ok) {
+      // Last resort: select the code so it can be copied by hand.
+      const sel = window.getSelection()
+      if (sel && codeRef.current) sel.selectAllChildren(codeRef.current)
+      return
+    }
+    setCopied(true) // already true on a second click: nothing re-animates
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), COPIED_MS)
+  }
+
+  return (
+    <div className={`ob-ref${copied ? ' is-copied' : ''}`}>
+      <span className="ob-ref__k">Reference</span>
+      <span className="ob-ref__done" aria-hidden="true">
+        Copied
+      </span>
+      <span className="ob-ref__v" ref={codeRef}>
+        {refCode}
+      </span>
+      <button type="button" className="ob-ref__copy" aria-label="Copy reference code" onClick={copy}>
+        <svg className="ob-ref__icon ob-ref__icon--copy" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <rect x="7" y="7" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+          <path d="M13 4.5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <svg className="ob-ref__icon ob-ref__icon--done" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="m4 10.5 4 4 8-9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <span className="sr-only" aria-live="polite">
+        {copied ? 'Reference copied' : ''}
+      </span>
+    </div>
+  )
+}
+
 function Success({ refCode, dev, firstName, draft }: { refCode: string; dev: boolean; firstName: string; draft: Draft }) {
   const ref = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -244,10 +316,7 @@ function Success({ refCode, dev, firstName, draft }: { refCode: string; dev: boo
       <h1 className="h2 ob-screen__title" id="ob-done" tabIndex={-1} ref={ref}>
         Thank you{firstName ? `, ${firstName}` : ''}. <span className="accent">We're on it.</span>
       </h1>
-      <p className="ob-ref">
-        <span className="ob-ref__k">Reference</span>
-        <span className="ob-ref__v">{refCode}</span>
-      </p>
+      <RefCard refCode={refCode} />
       <DraftCard draft={draft} />
       <h2 className="ob-next__title">What happens next</h2>
       <ol className="ob-next">
