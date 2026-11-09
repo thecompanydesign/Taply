@@ -171,6 +171,62 @@ export function useScrollFx() {
 }
 
 /**
+ * CTA float: a CTA lifts (`.is-lifted`) while it is comfortably in view and
+ * settles back to flat when it leaves, every time. One shared observer; a
+ * MutationObserver picks up CTAs added later (e.g. the onboarding
+ * confirmation) and lets go of removed ones. Opted out: `data-float="off"`,
+ * and anything in the hero, the navigation bar or the mobile menu (always on
+ * screen). Floating CTAs get `.is-floating` for their slower transition.
+ * Nothing at all with reduced motion: the buttons stay flat.
+ */
+const FLOAT_OFF = '[data-float="off"], .hero, .nav-wrap, .nav-panel'
+
+export function useCtaFloat() {
+  useEffect(() => {
+    if (reducedMotion() || !('IntersectionObserver' in window)) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) e.target.classList.toggle('is-lifted', e.isIntersecting && e.intersectionRatio >= 0.59)
+      },
+      { rootMargin: '-12% 0px -12% 0px', threshold: [0, 0.6] },
+    )
+    const watched = new Set<HTMLElement>()
+    const ctasIn = (node: Node): HTMLElement[] => {
+      if (!(node instanceof HTMLElement)) return []
+      const found = Array.from(node.querySelectorAll<HTMLElement>('.cta'))
+      return node.matches('.cta') ? [node, ...found] : found
+    }
+    const add = (node: Node) =>
+      ctasIn(node).forEach((el) => {
+        if (watched.has(el) || el.closest(FLOAT_OFF)) return
+        watched.add(el)
+        el.classList.add('is-floating')
+        io.observe(el)
+      })
+    const drop = (node: Node) =>
+      ctasIn(node).forEach((el) => {
+        if (!watched.delete(el)) return
+        io.unobserve(el)
+        el.classList.remove('is-floating', 'is-lifted')
+      })
+
+    add(document.body)
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        r.removedNodes.forEach(drop)
+        r.addedNodes.forEach(add)
+      }
+    })
+    mo.observe(document.body, { childList: true, subtree: true })
+    return () => {
+      mo.disconnect()
+      io.disconnect()
+      watched.forEach((el) => el.classList.remove('is-floating', 'is-lifted'))
+    }
+  }, [])
+}
+
+/**
  * Magnetic pull (max 4px) on the primary CTAs. Fine pointers only, never with
  * reduced motion. Uses the `translate` property so hover lifts still apply.
  */

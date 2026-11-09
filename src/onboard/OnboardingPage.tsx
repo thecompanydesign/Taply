@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, ReactNode, RefObject } from 'react'
 import { BrandMark, CTA, ORDER_LINK_NOTE, ORDER_URL, WHATSAPP_NUMBER } from '../components/shared'
 import { CardBody, CardStage, FlipButton, StaticCards, usePrefersReducedMotion } from '../components/YourCardSection'
+import { useCtaFloat } from '../hooks/useReveal'
 import { EMPTY_BRIEF, MAX, MAX_CARD_FILES, MAX_SOCIALS, MAX_TOTAL_BYTES, PLATFORMS, validateBrief } from './limits'
 import type { Brief, FieldErrors, Platform, Social } from './limits'
 import { formatBytes, kindList, prepare, SLOT_ACCEPT, SLOT_LABEL } from './files'
@@ -146,6 +147,7 @@ function useReveal(root: RefObject<HTMLElement | null>) {
 // ---------------------------------------------------------------- page
 export default function OnboardingPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('t'), [])
+  useCtaFloat()
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
 
   useEffect(() => {

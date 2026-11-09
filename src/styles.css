@@ -387,6 +387,40 @@ a {
   background: rgba(19, 19, 31, 0.05);
 }
 
+/* Float (useCtaFloat): flat out of view; lifts 4px with a soft shadow while
+   in view, settles when it leaves. Hover adds 2px, a press flattens it. Not
+   on the hero, the nav bar or the mobile menu (they never get .is-floating). */
+.cta.is-floating {
+  --float-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    transform 600ms var(--float-ease),
+    box-shadow 600ms var(--float-ease),
+    translate 300ms var(--ease),
+    background-color 250ms var(--ease);
+}
+.cta.is-floating.is-lifted {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 30px -12px rgba(19, 19, 31, 0.35);
+}
+.cta.is-floating.is-lifted:hover {
+  transform: translateY(-6px);
+}
+.cta.is-floating:active,
+.cta.is-floating.is-lifted:active {
+  transform: none;
+  box-shadow: none;
+}
+/* Dark sections: a deeper shadow plus a faint violet glow, so the lift shows. */
+:is(.teams, .final, .footer) .cta.is-floating.is-lifted {
+  box-shadow:
+    0 18px 34px -12px rgba(0, 0, 0, 0.7),
+    0 0 28px -8px rgba(76, 27, 241, 0.45);
+}
+/* Text-style buttons: the lift, with only a very light shadow. */
+.cta--ghost.is-floating.is-lifted {
+  box-shadow: 0 10px 18px -12px rgba(19, 19, 31, 0.18);
+}
+
 /* ==========================================================================
    Navigation
    ========================================================================== */
@@ -3369,6 +3403,12 @@ a {
   }
   .cta:hover {
     transform: none;
+  }
+  .cta.is-floating,
+  .cta.is-floating.is-lifted {
+    transition: none;
+    transform: none;
+    box-shadow: none;
   }
   .step__in:is(:hover, :active, :focus-within) :is(.step__num, .step__title, .step__text),
   .step.is-active :is(.step__num, .step__title, .step__text) {

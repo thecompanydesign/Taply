@@ -1,4 +1,4 @@
-import { useLoopVisibility, useMagnetic, useReveal, useScrollFx } from './hooks/useReveal'
+import { useCtaFloat, useLoopVisibility, useMagnetic, useReveal, useScrollFx } from './hooks/useReveal'
 import { Navigation } from './components/Navigation'
 import { Hero } from './components/Hero'
 import { ProblemSection } from './components/ProblemSection'
@@ -21,6 +21,7 @@ const AudioDebugPanel = AUDIO_DEBUG ? lazy(() => import('./components/AudioDebug
 
 export default function App() {
   useReveal()
+  useCtaFloat()
   useLoopVisibility()
   useScrollFx()
   useMagnetic()
