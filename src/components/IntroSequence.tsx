@@ -185,9 +185,13 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
       const placeHand = (side: Side, finger: Finger, key: string, duration: number) => {
         const hand = hands[side]
         const kr = keyEl(key).querySelector<HTMLElement>('.intro-key__c')!.getBoundingClientRect()
-        const sr = ((hand.offsetParent as HTMLElement | null) ?? stage).getBoundingClientRect()
-        const kx = kr.left - sr.left
-        const ky = kr.top - sr.top
+        const box = (hand.offsetParent as HTMLElement | null) ?? stage
+        const sr = box.getBoundingClientRect()
+        // On short desktop screens the stage is scaled down (--intro-fit):
+        // screen px -> the container's own px. Exactly 1 everywhere else.
+        const fit = box.offsetWidth ? sr.width / box.offsetWidth : 1
+        const kx = (kr.left - sr.left) / fit
+        const ky = (kr.top - sr.top) / fit
         const s = hand.offsetWidth / VB.w
         let [fx, fy] = TIPS[finger]
         if (side === 'left') fx = 108 - fx
@@ -310,8 +314,11 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
           const vh = window.innerHeight
           const onScreen = ct.x > 0 && ct.x < vw && ct.y > vh * 0.12 && ct.y < vh * 0.88
           if (onScreen && r0.width > 0) {
-            const dx = ct.x - (r0.left + r0.width / 2)
-            const dy = ct.y - (r0.top + r0.height / 2)
+            // The card layer may be scaled down (--intro-fit): screen px -> layer px.
+            const layer = fly.parentElement
+            const fit = layer && layer.offsetWidth ? layer.getBoundingClientRect().width / layer.offsetWidth : 1
+            const dx = (ct.x - (r0.left + r0.width / 2)) / fit
+            const dy = (ct.y - (r0.top + r0.height / 2)) / fit
             const k = front.offsetWidth / r0.width
             fly.animate(
               [{ transform: 'none' }, { transform: `translate(${dx}px, ${dy}px) scale(${k}) rotate(-9deg)` }],
