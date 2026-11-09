@@ -661,6 +661,11 @@ main:focus {
   .intro__card-layer {
     transform: translateY(calc(var(--intro-anchor) - 50%)) scale(var(--intro-fit)) translateY(calc(50% - var(--intro-anchor)));
   }
+  /* Keyboard and hands, as one group: 90px higher on screen (divided by the
+     stage's fit, which scales it back down), closer to the headline. */
+  .intro__desk {
+    top: calc(54% - 90px / var(--intro-fit));
+  }
 }
 /* How much the stage shrinks, by screen height, so the keyboard keeps about
    12px clear of the bottom edge. */
