@@ -17,11 +17,9 @@ const NEXT: Record<Phase, Phase> = { stack: 'deal', deal: 'fan', fan: 'tap', tap
 
 const DEAL_MS = 1100 // one card's trip from the top to the back of the pile
 const DEAL_AT = [0, 1200] // when each of the two deals starts
-const DEAL_OUT = 0.78 // card widths the dealt card swings out to the right
 const DEAL_DIP = 0.05 // it goes out a little low and comes back a little high
 const DEAL_TURN = 8 // deg of extra turn at the far point
 const DEAL_SCALE = 0.8 // it shrinks as it goes round the back
-const PILE_SHIFT = 0.2 // card widths the rest of the pile slides left to make room
 const FAN_STAGGER = 60
 const FAN_FLIGHT = TEAMS_CYCLE.fan - FAN_STAGGER * (N - 1)
 const GATHER_STAGGER = 110
@@ -29,7 +27,9 @@ const GATHER_FLIGHT = TEAMS_CYCLE.gather - GATHER_STAGGER * (N - 1)
 const SETTLE_MS = 700 // hold phases ease from wherever a skip left the cards
 const WAVE_START = 150
 const WAVE_STEP = 550 // the NFC pulse reaches the next card
-const RISE_PX = 10
+const RISE_PX = 10 // desktop
+const RISE_NARROW = 0.087 // card widths on phones: the same 10px, scaled with the larger card
+const RIPPLE_GROW = { wide: 0.75, narrow: 0.55 } // how far the rings spread past 0.55 of their size
 const RISE_MS = 800
 const GLOW_MS = 900
 const RIPPLE_MS = 1100
@@ -44,8 +44,18 @@ const STACK_Y = [0.0375, 0.0125, -0.0125, -0.0375]
 // The fan: a hand of cards turning about a point below the pile, left (0) to right (3).
 const FAN = {
   wide: { angles: [-24, -8, 8, 24], radius: 2.2, scale: 0.78 },
-  narrow: { angles: [-18, -6, 6, 18], radius: 2.8, scale: 0.76 },
+  // Phones (under 768px): larger cards, so slightly smaller angles.
+  narrow: { angles: [-16, -5, 5, 16], radius: 3.3, scale: 0.76 },
 }
+// The deal: how far (card widths) the dealt card swings out right and the
+// rest of the pile slides left. On phones the swing is shared more evenly
+// between the two, so the larger cards stay inside the circle.
+const DEAL = {
+  wide: { out: 0.78, shift: 0.2 },
+  narrow: { out: 0.6, shift: 0.38 },
+}
+/** Phones and small tablets: the larger-card layout (see .teams__visual in styles.css). */
+const isNarrow = () => window.matchMedia('(max-width: 767px)').matches
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -168,7 +178,7 @@ function CardFan() {
       const el = cardRefs.current[i]
       if (!el) return
       const pose =
-        `translate3d(calc(var(--card-w) * ${p.x.toFixed(4)}), calc(var(--card-w) * ${p.y.toFixed(4)} - ${liftPx.toFixed(2)}px), 0) ` +
+        `translate3d(calc(var(--team-card-w) * ${p.x.toFixed(4)}), calc(var(--team-card-w) * ${p.y.toFixed(4)} - ${liftPx.toFixed(2)}px), 0) ` +
         `rotate(${p.r.toFixed(2)}deg) scale(${p.s.toFixed(4)})`
       if (w.pose[i] !== pose) {
         el.style.transform = pose
@@ -194,12 +204,12 @@ function CardFan() {
       if (w.ring[j] === key) return
       w.ring[j] = key
       el.style.opacity = o <= 0 ? '0' : o.toFixed(3)
-      if (o > 0) el.style.transform = `translate3d(calc(var(--card-w) * ${x.toFixed(4)}), calc(var(--card-w) * ${y.toFixed(4)}), 0) scale(${sc.toFixed(3)})`
+      if (o > 0) el.style.transform = `translate3d(calc(var(--team-card-w) * ${x.toFixed(4)}), calc(var(--team-card-w) * ${y.toFixed(4)}), 0) scale(${sc.toFixed(3)})`
     }
 
     if (reducedMotion()) {
       // The still fan: no cycle, no tilt.
-      const narrow = root.clientWidth < 480
+      const narrow = isNarrow()
       for (let i = 0; i < N; i++) {
         setZ(i, i)
         paintCard(i, fanPose(i, narrow))
@@ -221,7 +231,7 @@ function CardFan() {
       s.phaseAt = s.clock
       root.dataset.phase = phase
       s.from = s.now.map((p) => ({ ...p }))
-      s.narrow = root.clientWidth < 480
+      s.narrow = isNarrow()
       for (let i = 0; i < N; i++) setZ(i, s.layer[i])
       if (phase === 'deal') {
         // Twice: the top card goes to the back and the others move up one place.
@@ -276,17 +286,18 @@ function CardFan() {
             const e0 = easeInOut(unit((t - DEAL_AT[0]) / DEAL_MS))
             const e1 = easeInOut(unit((t - DEAL_AT[1]) / DEAL_MS))
             p = mix(mix(s.from[i], stackPose(s.deal[1][i]), e0), stackPose(s.deal[2][i]), e1)
+            const deal = s.narrow ? DEAL.narrow : DEAL.wide
             for (let d = 0; d < 2; d++) {
               const e = d ? e1 : e0
               const arc = Math.sin(Math.PI * e)
               if (i === s.dealt[d]) {
                 // Out to the right, then round the back of the pile.
-                p.x += DEAL_OUT * arc
+                p.x += deal.out * arc
                 p.y += DEAL_DIP * Math.sin(2 * Math.PI * e)
                 p.r += DEAL_TURN * arc
                 p.s *= 1 - (1 - DEAL_SCALE) * arc
               } else {
-                p.x -= PILE_SHIFT * arc
+                p.x -= deal.shift * arc
               }
             }
             // The dealt card drops behind the pile at the far point of its trip.
@@ -301,12 +312,13 @@ function CardFan() {
             p = mix(s.from[i], c, settle)
             // The pulse reaches the cards left to right (fan slot = layer).
             const at = WAVE_START + k * WAVE_STEP
-            lift = RISE_PX * bump(t, at, RISE_MS)
+            if (s.narrow) p.y -= RISE_NARROW * bump(t, at, RISE_MS)
+            else lift = RISE_PX * bump(t, at, RISE_MS)
             setGlow(i, bump(t, at, GLOW_MS))
             for (let r = 0; r < 2; r++) {
               const u = (t - at - r * RIPPLE_GAP) / RIPPLE_MS
               const o = u <= 0 || u >= 1 ? 0 : u < 0.15 ? (0.5 * u) / 0.15 : 0.5 * (1 - (u - 0.15) / 0.85)
-              setRing(i * 2 + r, c.x, c.y, 0.55 + 0.75 * ease(unit(u)), o)
+              setRing(i * 2 + r, c.x, c.y, 0.55 + (s.narrow ? RIPPLE_GROW.narrow : RIPPLE_GROW.wide) * ease(unit(u)), o)
             }
             break
           }
