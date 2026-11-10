@@ -37,7 +37,8 @@
 }
 
 /* The canvas below the footer (overscroll, behind mobile toolbars) is the
-   footer's Carbon; body keeps Warm Paper behind every section. */
+   footer's Carbon, on html and body alike. Every section sets its own
+   background, so nothing shows the body colour. */
 html {
   background: var(--carbon);
   overscroll-behavior-y: none;
@@ -49,7 +50,7 @@ html {
 body {
   margin: 0;
   overscroll-behavior-y: none;
-  background: var(--warm-paper);
+  background-color: var(--carbon);
   color: var(--carbon);
   font-family: var(--font-sans);
   font-size: 16px;
