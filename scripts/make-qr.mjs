@@ -1,4 +1,4 @@
-// Generates public/brand/taply-qr.svg: a real QR code for https://taply.com
+// Generates public/brand/taply-qr.svg: a real QR code for https://taply.co.ke
 // (error correction M), Carbon modules on a white rounded tile with a
 // 4-module quiet zone. Runs before every build; the output is deterministic.
 //
@@ -9,7 +9,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 
-export const QR_URL = 'https://taply.com'
+export const QR_URL = 'https://taply.co.ke'
 const OUT = fileURLToPath(new URL('../public/brand/taply-qr.svg', import.meta.url))
 const QUIET = 4
 const CARBON = '#13131f'

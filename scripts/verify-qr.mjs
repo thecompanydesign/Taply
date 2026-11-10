@@ -1,6 +1,6 @@
 // Renders public/brand/taply-qr.svg to pixels (resvg) at several sizes and
 // decodes it with jsQR. Exits non-zero unless every render decodes to exactly
-// https://taply.com.
+// https://taply.co.ke.
 //
 //   node scripts/verify-qr.mjs
 import { readFileSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { Resvg } from '@resvg/resvg-js'
 import jsQR from 'jsqr'
 
-const EXPECTED = 'https://taply.com'
+const EXPECTED = 'https://taply.co.ke'
 const svg = readFileSync(fileURLToPath(new URL('../public/brand/taply-qr.svg', import.meta.url)))
 
 let ok = true

@@ -46,8 +46,8 @@ export function Footer() {
             <h2 className="mono-label footer__h">Taply</h2>
             <ul>
               <li>
-                <a href="https://taply.com" target="_blank" rel="noreferrer">
-                  taply.com
+                <a href="https://taply.co.ke" target="_blank" rel="noreferrer">
+                  taply.co.ke
                 </a>
               </li>
             </ul>
