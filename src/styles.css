@@ -20,11 +20,11 @@
   --gutter: clamp(20px, 4vw, 64px);
   --max: 1280px;
 
-  /* Section headings (home page). One leading for every section title: 1.1
-     clears descenders, plus 0.04 so a second line always has a visible gap.
-     --title-trim takes the extra leading back off the top and bottom, so a
-     single-line title keeps its height and the gaps below stay exact. */
-  --title-leading: 1.14;
+  /* Section headings (home page). One leading for every section title,
+     tight so a two-line title reads as one block while descenders still
+     clear the next line. --title-trim takes the extra leading back off the
+     top and bottom, so the gaps above and below stay exact. */
+  --title-leading: 1.04;
   --title-trim: calc((1 - var(--title-leading)) * 0.5em);
   --eyebrow-gap: 28px; /* eyebrow label to heading */
   --title-gap: 28px; /* heading to the text below it */
