@@ -2,8 +2,12 @@
    Client onboarding form (/onboard). Uses the site's tokens (styles.css).
    One scrolling page: a stack of sections, a sticky live preview on desktop.
    ========================================================================== */
-/* /onboard has no dark footer: its canvas stays Warm Paper (no strip in either colour). */
-html:has(.ob) {
+/* /onboard has no dark footer: while it is mounted (OnboardingPage adds
+   .ob-route to <html>) the canvas and body are Warm Paper too, so no Carbon
+   strip shows below the page, behind Safari's bar or when overscrolling. */
+html:has(.ob),
+html.ob-route,
+html.ob-route body {
   background: var(--warm-paper);
 }
 .ob {
@@ -13,6 +17,7 @@ html:has(.ob) {
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   overflow-x: clip;
   background: var(--warm-paper);
   color: var(--carbon);
@@ -200,7 +205,8 @@ html:has(.ob) {
   border-color: var(--tap-violet);
 }
 .ob-input[aria-invalid='true'] {
-  border-color: var(--error);
+  border-color: var(--pulse);
+  box-shadow: inset 0 0 0 1px var(--pulse);
 }
 /* Autofilled fields look like any filled field: white, Carbon text, same border and focus ring. */
 .ob-form {
@@ -441,6 +447,9 @@ html:has(.ob) {
 }
 .ob-drop.has-file {
   padding-block: 16px;
+}
+.ob-drop:has(.ob-drop__input[aria-invalid='true']) {
+  border-color: var(--pulse);
 }
 /* The real file input covers the zone: click, tap, keyboard and drop all reach it. */
 .ob-drop__input {

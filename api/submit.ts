@@ -17,6 +17,8 @@ import {
   MAX_SOCIALS,
   MIN_FILL_SECONDS,
   PLATFORMS,
+  CARD_OR_DETAILS,
+  needsCardOrDetails,
   validateBrief,
 } from '../src/onboard/limits.js'
 import type { Brief, Platform } from '../src/onboard/limits.js'
@@ -275,9 +277,15 @@ function siteOrigin(req: IncomingMessage): string {
 }
 
 function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, attachedFields: string[], site: string) {
-  const subject = `New profile details: ${b.name.trim()} (${ref})`
+  const subject = `New profile details: ${b.name.trim() || 'business card only'} (${ref})`
   const meta = `${ref} · ${nairobiTime(submitted)} Nairobi time`
   const attached = attachedLine(attachedFields)
+  // Nothing typed in that describes the person: the team works from the card image.
+  const cardOnly =
+    attachedFields.includes('card') &&
+    ![b.name, b.title, b.company, b.phone, b.phone2, b.email, b.website, b.bio, b.tagline, b.notes].some(has) &&
+    !b.socials.some((s) => has(s.url))
+  const cardOnlyNote = 'Only a business card image was provided: copy the details from it.'
   const consent = `Consent to show on public profile and be contacted: given ${nairobiTime(consentAt)} Nairobi time`
   const all = sections(b)
 
@@ -287,6 +295,7 @@ function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, att
     'Taply',
     'New profile details',
     meta,
+    ...(cardOnly ? ['', cardOnlyNote] : []),
     ...all.flatMap((s) => {
       const body =
         s.kind === 'person'
@@ -345,6 +354,7 @@ function buildEmail(b: Brief, ref: string, submitted: Date, consentAt: Date, att
  }</td></tr>
 <tr><td style="padding:0 0 6px;">${p(`font:700 26px/1.25 ${C.font};color:${C.ink};`, 'New profile details')}</td></tr>
 <tr><td style="padding:0 0 32px;">${p(`font:14px/1.5 ${C.font};color:${C.muted};`, esc(meta))}</td></tr>
+${cardOnly ? `<tr><td style="padding:0 0 28px;">${p(`font:15px/1.6 ${C.font};color:${C.ink};`, esc(cardOnlyNote))}</td></tr>` : ''}
 ${all.map(sectionHtml).join('\n')}
 ${attached ? `<tr><td style="padding:0 0 28px;">${p(`font:14px/1.5 ${C.font};color:${C.ink};`, `<span style="color:${C.muted};">Attached:</span> ${esc(attached)}`)}</td></tr>` : ''}
 <tr><td style="padding:8px 0 0;">${p(`font:12px/1.5 ${C.font};color:${C.muted};`, esc(consent))}</td></tr>
@@ -465,10 +475,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const { brief, socialCount } = cleanBrief(raw)
   if (socialCount > MAX_SOCIALS)
     return sendJson(res, 400, { ok: false, error: 'invalid', fields: { socials: `Up to ${MAX_SOCIALS} social links.` }, message: `Please add at most ${MAX_SOCIALS} social links.` })
-  const errors = validateBrief(brief)
-  if (Object.keys(errors).length) return sendJson(res, 400, { ok: false, error: 'invalid', fields: errors, message: 'Please check the highlighted fields.' })
-
+  // A business card makes every detail optional; without one the required
+  // details must be there. Anything filled in must be valid either way.
   const cards = parsed.files.filter((f) => f.field === 'card')
+  const hasCard = cards.length > 0
+  const errors = validateBrief(brief, { hasCard })
+  if (Object.keys(errors).length)
+    return sendJson(res, 400, {
+      ok: false,
+      error: 'invalid',
+      fields: errors,
+      message: needsCardOrDetails(brief, hasCard) ? CARD_OR_DETAILS : 'Please check the highlighted fields.',
+    })
+
   if (cards.length > MAX_CARD_FILES) return sendJson(res, 400, { ok: false, error: 'file', file: 'card', message: 'Please upload at most 2 business card files (front and back).' })
   if (parsed.files.filter((f) => f.field === 'logo').length > 1 || parsed.files.filter((f) => f.field === 'photo').length > 1)
     return sendJson(res, 400, { ok: false, error: 'file', message: 'Please upload one logo and one profile photo.' })

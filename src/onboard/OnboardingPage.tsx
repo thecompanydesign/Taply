@@ -3,7 +3,7 @@ import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, ReactNode, RefObjec
 import { BrandMark, CTA, ORDER_LINK_NOTE, ORDER_URL, WHATSAPP_NUMBER } from '../components/shared'
 import { CardBody, CardStage, FlipButton, StaticCards, usePrefersReducedMotion } from '../components/YourCardSection'
 import { useCtaFloat } from '../hooks/useReveal'
-import { EMPTY_BRIEF, MAX, MAX_CARD_FILES, MAX_SOCIALS, MAX_TOTAL_BYTES, PLATFORMS, validateBrief } from './limits'
+import { CARD_OR_DETAILS, EMPTY_BRIEF, MAX, MAX_CARD_FILES, MAX_SOCIALS, MAX_TOTAL_BYTES, PLATFORMS, needsCardOrDetails, validateBrief } from './limits'
 import type { Brief, FieldErrors, Platform, Social } from './limits'
 import { formatBytes, kindList, prepare, SLOT_ACCEPT, SLOT_LABEL } from './files'
 import type { Prepared, Slot } from './files'
@@ -148,6 +148,12 @@ function useReveal(root: RefObject<HTMLElement | null>) {
 export default function OnboardingPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('t'), [])
   useCtaFloat()
+  // The page's own Warm Paper on <html> and <body> while it is mounted (see onboard.css).
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('ob-route')
+    return () => root.classList.remove('ob-route')
+  }, [])
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
 
   useEffect(() => {
@@ -395,6 +401,8 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   const [rateLimited, setRateLimited] = useState(false)
   const [side, setSide] = useState<'front' | 'back'>('front')
   const [hp, setHp] = useState('')
+  // Shown at the upload area after a send with no card and a required detail missing.
+  const [cardGuide, setCardGuide] = useState(false)
   const startedAt = useRef(firstOpened(link.key))
   const formRef = useRef<HTMLFormElement>(null)
   const briefRef = useRef(brief)
@@ -428,16 +436,34 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
     focusSocial.current = null
   }, [brief.socials.length])
 
+  // A business card makes every detail optional (see validateBrief).
+  const hasCard = files.card.length > 0
+  const hasCardRef = useRef(hasCard)
+  hasCardRef.current = hasCard
+  const check = (b: Brief) => validateBrief(b, { hasCard: hasCardRef.current })
+
   const update = (next: Brief, changed: string) => {
     setBrief(next)
     // Errors appear on blur or submit only; typing just clears one that is fixed.
-    if (errors[changed] && !validateBrief(next)[changed]) setErrors((e) => ({ ...e, [changed]: undefined }))
+    if (errors[changed] && !check(next)[changed]) setErrors((e) => ({ ...e, [changed]: undefined }))
+    if (cardGuide && !needsCardOrDetails(next, hasCardRef.current)) setCardGuide(false)
   }
   const set = <K extends keyof Brief>(k: K, v: Brief[K]) => update({ ...briefRef.current, [k]: v }, k)
   const blur = (k: string) => () => {
-    const msg = validateBrief(briefRef.current)[k]
+    const msg = check(briefRef.current)[k]
     setErrors((e) => (e[k] === msg ? e : { ...e, [k]: msg }))
   }
+
+  // Adding or removing the card changes what is required: recheck the fields
+  // that show an error now, and the upload-area guidance.
+  useEffect(() => {
+    const found = validateBrief(briefRef.current, { hasCard })
+    setErrors((e) => {
+      const next = Object.fromEntries(Object.entries(e).map(([k, v]) => [k, v ? found[k] : v]))
+      return Object.keys(next).some((k) => next[k] !== e[k]) ? next : e
+    })
+    if (hasCard) setCardGuide(false)
+  }, [hasCard])
   /** value / onChange / onBlur for a text field. */
   const text = (k: keyof Brief) => ({
     value: brief[k] as string,
@@ -514,7 +540,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   }, [files, totalBytes])
   const biggestSlot = totalError ? Object.values(files).flat().sort((a, b) => b.file.size - a.file.size)[0].slot : null
 
-  const live = validateBrief(brief)
+  const live = validateBrief(brief, { hasCard })
   const ready = !REQUIRED_KEYS.some((k) => live[k])
 
   const focusFirstInvalid = () =>
@@ -529,8 +555,9 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (sending) return
-    const found = validateBrief(brief)
+    const found = validateBrief(brief, { hasCard })
     setErrors(found)
+    setCardGuide(needsCardOrDetails(brief, hasCard))
     const n = Object.keys(found).length + (totalError ? 1 : 0)
     if (n) {
       setAnnounce(`Please check ${n} ${n === 1 ? 'field' : 'fields'} before you send.`)
@@ -617,9 +644,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
 
   const err = (k: string) => errors[k]
   const gift = brief.gift
-  const phoneHint = gift
-    ? 'Include their country code if outside Kenya, e.g. +44 7700 900123.'
-    : 'Include your country code if outside Kenya, e.g. +44 7700 900123.'
+  const phoneHint = 'A Kenyan number, e.g. 0712 345 678 or +254 712 345 678.'
 
   return (
     <>
@@ -664,10 +689,10 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
               </label>
               {gift && (
                 <div className="ob-grid ob-gift__who">
-                  <Field id="ordererName" label="Your name" required error={err('ordererName')}>
+                  <Field id="ordererName" label="Your name" required={!hasCard} error={err('ordererName')}>
                     {(p) => <input {...p} {...text('ordererName')} className="ob-input" type="text" autoComplete="name" maxLength={MAX.name} />}
                   </Field>
-                  <Field id="ordererPhone" label="Your number" required hint="Your WhatsApp, so we can reach you about the order." error={err('ordererPhone')}>
+                  <Field id="ordererPhone" label="Your number" required={!hasCard} hint="Your WhatsApp, so we can reach you about the order." error={err('ordererPhone')}>
                     {(p) => <input {...p} {...text('ordererPhone')} className="ob-input" type="tel" inputMode="tel" autoComplete="tel" maxLength={MAX.phone} />}
                   </Field>
                 </div>
@@ -685,7 +710,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
                 hint="JPG, PNG, WebP, HEIC or PDF. Front and back, if it has both."
                 multiple
                 files={files.card}
-                error={fileErr.card ?? (biggestSlot === 'card' ? totalError : undefined)}
+                error={fileErr.card ?? (biggestSlot === 'card' ? totalError : cardGuide ? CARD_OR_DETAILS : undefined)}
                 onAdd={addFiles}
                 onRemove={removeFile}
               />
@@ -695,7 +720,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
             {/* 2. Details */}
             <Section num="02" label={gift ? "Card owner's details" : 'Your details'}>
               <div className="ob-grid">
-                <Field id="name" label={gift ? "Card owner's full name" : 'Full name'} required error={err('name')} full>
+                <Field id="name" label={gift ? "Card owner's full name" : 'Full name'} required={!hasCard} error={err('name')} full>
                   {(p) => <input {...p} {...text('name')} className="ob-input" type="text" autoComplete={gift ? 'off' : 'name'} maxLength={MAX.name} />}
                 </Field>
                 <Field id="title" label="Job title" error={err('title')}>
@@ -710,7 +735,7 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
             {/* 3. Contact */}
             <Section num="03" label={gift ? 'How people reach them' : 'How people reach you'}>
               <div className="ob-grid">
-                <Field id="phone" label={gift ? "Card owner's phone (WhatsApp)" : 'Phone (WhatsApp)'} required hint={phoneHint} error={err('phone')}>
+                <Field id="phone" label={gift ? "Card owner's phone (WhatsApp)" : 'Phone (WhatsApp)'} required={!hasCard} hint={phoneHint} error={err('phone')}>
                   {(p) => <input {...p} {...text('phone')} className="ob-input" type="tel" inputMode="tel" autoComplete={gift ? 'off' : 'tel'} maxLength={MAX.phone} />}
                 </Field>
                 <Field id="phone2" label="Second phone" error={err('phone2')}>

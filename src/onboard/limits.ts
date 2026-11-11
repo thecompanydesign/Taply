@@ -76,12 +76,16 @@ export const EMPTY_BRIEF: Brief = {
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
-/** Digits only, 7-15 of them (an optional leading + and spaces/dashes/brackets allowed). */
+/**
+ * A Kenyan mobile number: 10 digits starting 07 or 01 (0712 345 678), or
+ * +254 / 254 and 9 digits starting 7 or 1 (+254 712 345 678). Spaces,
+ * dashes and brackets are ignored; anything else, or a digit too few or
+ * too many, fails.
+ */
 export function isPhone(v: string): boolean {
-  if (!/^\+?[\d\s()-]+$/.test(v)) return false
-  const digits = v.replace(/\D/g, '')
-  return digits.length >= 7 && digits.length <= 15
+  return /^(?:0[17]\d{8}|\+?254[17]\d{8})$/.test(v.replace(/[\s()-]/g, ''))
 }
+export const PHONE_ERROR = 'Enter a valid phone number, like 0712 345 678.'
 
 /** Accepts "example.com" or "https://example.com"; rejects anything that isn't http(s). */
 export function isWebUrl(v: string): boolean {
@@ -101,30 +105,43 @@ export function isProfile(v: string): boolean {
 
 export type FieldErrors = Partial<Record<string, string>>
 
+/** No card, and a required detail is still empty: the form asks for one or the other. */
+export function needsCardOrDetails(b: Brief, hasCard: boolean): boolean {
+  if (hasCard) return false
+  return !b.name.trim() || !b.phone.trim() || (b.gift && (!b.ordererName.trim() || !b.ordererPhone.trim()))
+}
+export const CARD_OR_DETAILS = 'Add your business card, or fill in the required details below.'
+
 /**
  * Validates the whole brief. Used by the form (inline, on blur and on
- * submit) and by the server before anything is emailed. Only the card
- * owner's name, WhatsApp number and consent are required (plus the
- * orderer's name and number when the card is a gift).
+ * submit) and by the server before anything is emailed.
+ *  - With a business card uploaded (`hasCard`), no detail is required: the
+ *    team copies them from the card. Anything typed in must still be valid.
+ *  - Without one, the card owner's name and WhatsApp number are required
+ *    (plus the orderer's name and number when the card is a gift).
+ * Consent is always required.
  */
-export function validateBrief(b: Brief): FieldErrors {
+export function validateBrief(b: Brief, { hasCard = false }: { hasCard?: boolean } = {}): FieldErrors {
   const e: FieldErrors = {}
+  const need = !hasCard
   const len = (k: string, v: string, max: number) => {
     if (v.length > max) e[k] = `Please keep this under ${max} characters.`
   }
   const whose = b.gift ? "the card owner's" : 'your'
 
   if (b.gift) {
-    if (!b.ordererName.trim()) e.ordererName = 'Please enter your name.'
-    if (!b.ordererPhone.trim()) e.ordererPhone = 'Please enter your number so we can reach you.'
-    else if (!isPhone(b.ordererPhone.trim())) e.ordererPhone = "That number doesn't look right. Please check it, e.g. +254 712 345 678."
+    if (need && !b.ordererName.trim()) e.ordererName = 'Please enter your name.'
+    if (!b.ordererPhone.trim()) {
+      if (need) e.ordererPhone = 'Please enter your number so we can reach you.'
+    } else if (!isPhone(b.ordererPhone.trim())) e.ordererPhone = PHONE_ERROR
     len('ordererName', b.ordererName, MAX.name)
   }
 
-  if (!b.name.trim()) e.name = `Please enter ${whose} full name.`
-  if (!b.phone.trim()) e.phone = `Please enter ${whose} WhatsApp number.`
-  else if (!isPhone(b.phone.trim())) e.phone = "That number doesn't look right. Please check it, e.g. +254 712 345 678."
-  if (b.phone2.trim() && !isPhone(b.phone2.trim())) e.phone2 = "That number doesn't look right. Please check it."
+  if (need && !b.name.trim()) e.name = `Please enter ${whose} full name.`
+  if (!b.phone.trim()) {
+    if (need) e.phone = `Please enter ${whose} WhatsApp number.`
+  } else if (!isPhone(b.phone.trim())) e.phone = PHONE_ERROR
+  if (b.phone2.trim() && !isPhone(b.phone2.trim())) e.phone2 = PHONE_ERROR
   if (b.email.trim() && !EMAIL_RE.test(b.email.trim())) e.email = 'Please check the email address, e.g. name@company.com.'
   if (b.website.trim() && !isWebUrl(b.website.trim())) e.website = 'Please enter a web address, e.g. company.com.'
   len('name', b.name, MAX.name)
